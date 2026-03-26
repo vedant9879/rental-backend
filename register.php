@@ -1,17 +1,28 @@
 <?php
 include "db.php";
 
-$name = $_POST['name'];
-$phone = $_POST['phone'];
-$password = $_POST['password'];
-$role = $_POST['role'];
+header("Access-Control-Allow-Origin: *");
 
-$sql = "INSERT INTO users(name,phone,password,role)
-VALUES('$name','$phone','$password','$role')";
+$name = $_POST['name'] ?? $_REQUEST['name'] ?? '';
+$phone = $_POST['phone'] ?? $_REQUEST['phone'] ?? '';
+$password = $_POST['password'] ?? $_REQUEST['password'] ?? '';
+$role = $_POST['role'] ?? $_REQUEST['role'] ?? 'user';
 
-if($conn->query($sql)){
- echo "success";
+if($name=="" || $phone=="" || $password==""){
+    echo "empty";
+    exit;
+}
+
+// ❗ check duplicate user
+$check = $conn->query("SELECT * FROM users WHERE phone='$phone'");
+
+if($check->num_rows > 0){
+    echo "exists";
 }else{
- echo "fail";
+
+    $conn->query("INSERT INTO users(name,phone,password,role)
+    VALUES('$name','$phone','$password','$role')");
+
+    echo "success";
 }
 ?>
