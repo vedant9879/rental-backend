@@ -6,10 +6,10 @@ $pass = getenv("KvBeENpOYKXzuUUKnUBTdqewBJBDoIgk");
 $db   = getenv("railway");
 $port = getenv("3306");
 
-$conn = mysqli_connect($host,$user,$pass,$db,$port);
+$conn = new mysqli($host, $user, $pass, $db, $port);
 
-if(!$conn){
-    die("DB Connection Failed");
+if ($conn->connect_error) {
+    die("DB Failed");
 }
 
 ?>
