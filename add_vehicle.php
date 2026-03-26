@@ -1,24 +1,31 @@
 <?php
 include "db.php";
 
-$name = $_POST['vehicle_name'] ?? '';
-$type = $_POST['vehicle_type'] ?? '';
+$name  = $_POST['vehicle_name'] ?? '';
+$type  = $_POST['vehicle_type'] ?? '';
 $price = $_POST['price_per_day'] ?? '';
 $owner = $_POST['owner_phone'] ?? '';
 
-$image = $_FILES['image']['name'] ?? '';
-$tmp   = $_FILES['image']['tmp_name'] ?? '';
+$path = "";
 
-$path = "uploads/" . $image;
+// ✅ If image is sent
+if(isset($_FILES['image']) && $_FILES['image']['name'] != ""){
 
-if(move_uploaded_file($tmp,$path)){
-    
-    $conn->query("INSERT INTO vehicles(owner_phone,vehicle_name,vehicle_type,price_per_day,vehicle_image)
-    VALUES('$owner','$name','$type','$price','$path')");
+    $image = $_FILES['image']['name'];
+    $tmp   = $_FILES['image']['tmp_name'];
 
-    echo "success";
-    
+    $path = "uploads/" . $image;
+
+    move_uploaded_file($tmp,$path);
+
 }else{
-    echo "image upload failed";
+    // ✅ fallback (no image)
+    $path = "uploads/default.jpg";
 }
+
+// ✅ Insert always
+$conn->query("INSERT INTO vehicles(owner_phone,vehicle_name,vehicle_type,price_per_day,vehicle_image)
+VALUES('$owner','$name','$type','$price','$path')");
+
+echo "success";
 ?>
