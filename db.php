@@ -5,7 +5,7 @@ $conn = new mysqli(
     "root",
     "KvBeENpOYKXzuUUKnUBTdqewBJBDoIgk",
     "railway",
-    MYSQLPORT_VALUE
+     3306
 );
 
 if ($conn->connect_error) {
