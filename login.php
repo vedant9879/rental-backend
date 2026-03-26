@@ -1,19 +1,30 @@
 <?php
 include "db.php";
 
-$phone = $_POST['phone'];
-$password = $_POST['password'];
+header("Access-Control-Allow-Origin: *");
 
-$result = $conn->query(
-"SELECT * FROM users WHERE phone='$phone' AND password='$password'"
-);
+$phone = $_POST['phone'] ?? $_REQUEST['phone'] ?? '';
+$password = $_POST['password'] ?? $_REQUEST['password'] ?? '';
 
-if($result->num_rows > 0){
+if($phone == "" || $password == ""){
+    echo "empty";
+    exit;
+}
 
-$row = $result->fetch_assoc();
-echo $row['role'];
+$res = $conn->query("SELECT * FROM users WHERE phone='$phone' AND password='$password'");
 
+if($res->num_rows > 0){
+    $row = $res->fetch_assoc();
+
+    echo json_encode([
+        "status" => "success",
+        "role" => $row['role'],
+        "name" => $row['name'],
+        "phone" => $row['phone']
+    ]);
 }else{
-echo "fail";
+    echo json_encode([
+        "status" => "fail"
+    ]);
 }
 ?>
