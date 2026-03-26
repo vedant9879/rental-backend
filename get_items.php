@@ -1,7 +1,7 @@
 <?php
 include "db.php";
 
-$base_url = "https://your-domain/"; // change this
+$base_url = "https://your-domain/"; // change
 
 $sql = "SELECT * FROM vehicles";
 $res = mysqli_query($conn,$sql);
