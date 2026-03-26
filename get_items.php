@@ -1,11 +1,15 @@
 <?php
 include "db.php";
 
-$res = $conn->query("SELECT * FROM items");
+$base_url = "https://your-domain/"; // change this
+
+$sql = "SELECT * FROM vehicles";
+$res = mysqli_query($conn,$sql);
 
 $data = array();
 
-while($row = $res->fetch_assoc()){
+while($row = mysqli_fetch_assoc($res)){
+    $row['vehicle_image'] = $base_url . $row['vehicle_image'];
     $data[] = $row;
 }
 
