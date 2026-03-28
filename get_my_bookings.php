@@ -1,15 +1,31 @@
 <?php
 include "db.php";
 
-$user = $_GET['user_phone'];
+if(isset($_GET['user_phone'])){
 
-$res = $conn->query("SELECT * FROM bookings WHERE user_phone='$user'");
+    $user = $_GET['user_phone'];
 
-$data = array();
+    $stmt = $conn->prepare("SELECT * FROM bookings WHERE user_phone=? ORDER BY id DESC");
+    $stmt->bind_param("s", $user);
+    $stmt->execute();
 
-while($row = $res->fetch_assoc()){
-    $data[] = $row;
+    $result = $stmt->get_result();
+
+    $data = array();
+
+    while($row = $result->fetch_assoc()){
+        $data[] = $row;
+    }
+
+    echo json_encode([
+        "status" => "success",
+        "data" => $data
+    ]);
+
+}else{
+    echo json_encode([
+        "status" => "error",
+        "message" => "user_phone missing"
+    ]);
 }
-
-echo json_encode($data);
 ?>
