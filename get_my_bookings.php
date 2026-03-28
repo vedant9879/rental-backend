@@ -1,31 +1,21 @@
 <?php
 include "db.php";
 
-if(isset($_GET['user_phone'])){
+$user = $_GET['user_phone'];
 
-    $user = $_GET['user_phone'];
+$sql = "SELECT b.id, v.vehicle_name, b.start_date, b.end_date, b.total_price, b.status
+        FROM bookings b
+        JOIN vehicles v ON b.vehicle_id = v.id
+        WHERE b.user_phone='$user'
+        ORDER BY b.id DESC";
 
-    $stmt = $conn->prepare("SELECT * FROM bookings WHERE user_phone=? ORDER BY id DESC");
-    $stmt->bind_param("s", $user);
-    $stmt->execute();
+$result = mysqli_query($conn, $sql);
 
-    $result = $stmt->get_result();
+$data = array();
 
-    $data = array();
-
-    while($row = $result->fetch_assoc()){
-        $data[] = $row;
-    }
-
-    echo json_encode([
-        "status" => "success",
-        "data" => $data
-    ]);
-
-}else{
-    echo json_encode([
-        "status" => "error",
-        "message" => "user_phone missing"
-    ]);
+while($row = mysqli_fetch_assoc($result)){
+    $data[] = $row;
 }
+
+echo json_encode($data);
 ?>
