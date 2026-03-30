@@ -5,10 +5,10 @@ $name = $_POST['name'];
 $email = $_POST['email'];
 $phone = $_POST['phone'];
 $password = $_POST['password'];
-$role = $_POST['role'];
+$role = strtolower(trim($_POST['role']));
 
-$aadhar = $_POST['aadhar_number'];
-$license = $_POST['license_number'];
+$aadhar = $_POST['aadhar_number'] ?? '';
+$license = $_POST['license_number'] ?? '';
 
 $check = "SELECT * FROM users WHERE phone='$phone' OR email='$email'";
 $res = mysqli_query($conn,$check);
@@ -26,6 +26,6 @@ VALUES
 if(mysqli_query($conn,$sql)){
     echo json_encode(["status"=>"success"]);
 }else{
-    echo json_encode(["status"=>"error"]);
+    echo json_encode(["status"=>"error","msg"=>mysqli_error($conn)]);
 }
 ?>
