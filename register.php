@@ -1,28 +1,31 @@
 <?php
 include "db.php";
 
-header("Access-Control-Allow-Origin: *");
+$name = $_POST['name'];
+$email = $_POST['email'];
+$phone = $_POST['phone'];
+$password = $_POST['password'];
+$role = $_POST['role'];
 
-$name = $_POST['name'] ?? $_REQUEST['name'] ?? '';
-$phone = $_POST['phone'] ?? $_REQUEST['phone'] ?? '';
-$password = $_POST['password'] ?? $_REQUEST['password'] ?? '';
-$role = $_POST['role'] ?? $_REQUEST['role'] ?? 'user';
+$aadhar = $_POST['aadhar_number'];
+$license = $_POST['license_number'];
 
-if($name=="" || $phone=="" || $password==""){
-    echo "empty";
-    exit;
+$check = "SELECT * FROM users WHERE phone='$phone' OR email='$email'";
+$res = mysqli_query($conn,$check);
+
+if(mysqli_num_rows($res) > 0){
+    echo json_encode(["status"=>"exists"]);
+    exit();
 }
 
-// ❗ check duplicate user
-$check = $conn->query("SELECT * FROM users WHERE phone='$phone'");
+$sql = "INSERT INTO users 
+(name,email,phone,password,role,aadhar_number,license_number)
+VALUES 
+('$name','$email','$phone','$password','$role','$aadhar','$license')";
 
-if($check->num_rows > 0){
-    echo "exists";
+if(mysqli_query($conn,$sql)){
+    echo json_encode(["status"=>"success"]);
 }else{
-
-    $conn->query("INSERT INTO users(name,phone,password,role)
-    VALUES('$name','$phone','$password','$role')");
-
-    echo "success";
+    echo json_encode(["status"=>"error"]);
 }
 ?>
