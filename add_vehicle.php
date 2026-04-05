@@ -3,12 +3,13 @@ include "db.php";
 
 header("Access-Control-Allow-Origin: *");
 
-// 🔹 Get data safely
+// 🔹 Get data
 $name  = $_POST['vehicle_name'] ?? '';
 $type  = $_POST['vehicle_type'] ?? '';
 $price = $_POST['price_per_day'] ?? 0;
 $owner = $_POST['owner_phone'] ?? '';
 
+// 🔹 Base URL
 $base_url = "https://rental-backend-production-8cbf.up.railway.app/";
 
 // 🔹 Validation
@@ -20,10 +21,10 @@ if($name == "" || $price == 0 || $owner == ""){
 // 🔹 Default image
 $path = $base_url . "uploads/default.jpg";
 
-// 🔥 Image Upload
+// 🔥 IMAGE UPLOAD
 if(isset($_FILES['image']) && $_FILES['image']['name'] != ""){
 
-    $image = time() . "_" . $_FILES['image']['name']; // unique name
+    $image = time() . "_" . $_FILES['image']['name'];
     $tmp   = $_FILES['image']['tmp_name'];
 
     $local_path = "uploads/" . $image;
@@ -33,7 +34,7 @@ if(isset($_FILES['image']) && $_FILES['image']['name'] != ""){
     }
 }
 
-// 🔹 Insert query
+// 🔹 Insert into DB
 $sql = "INSERT INTO vehicles
 (owner_phone,vehicle_name,vehicle_type,price_per_day,vehicle_image)
 VALUES
