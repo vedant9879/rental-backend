@@ -9,6 +9,13 @@ $type  = $_POST['vehicle_type'] ?? '';
 $price = $_POST['price_per_day'] ?? 0;
 $owner = $_POST['owner_phone'] ?? '';
 
+echo json_encode([
+    "status"=>"debug",
+    "name"=>$name,
+    "owner"=>$owner,
+    "price"=>$price
+]);
+exit;
 // 🔹 Base URL
 $base_url = "https://rental-backend-production-8cbf.up.railway.app/";
 
