@@ -3,7 +3,8 @@ include "db.php";
 
 $user = $_GET['user_phone'];
 
-$sql = "SELECT b.id, v.vehicle_name, b.start_date, b.end_date, b.total_price, b.status
+$sql = "SELECT b.id, b.user_phone, v.vehicle_name, 
+        b.start_date, b.end_date, b.total_price, b.status
         FROM bookings b
         JOIN vehicles v ON b.vehicle_id = v.id
         WHERE b.user_phone='$user'
