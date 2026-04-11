@@ -3,7 +3,8 @@ include "db.php";
 
 $owner = $_GET['owner_phone'];
 
-$sql = "SELECT b.id, b.user_phone, b.status, v.vehicle_name
+$sql = "SELECT b.id, b.user_phone, b.start_date, b.end_date, b.total_price, b.status,
+        v.vehicle_name
         FROM bookings b
         JOIN vehicles v ON b.vehicle_id = v.id
         WHERE v.owner_phone='$owner'
