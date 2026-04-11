@@ -20,8 +20,11 @@ if($check->num_rows > 0){
     echo "already booked";
 }else{
 
-    $conn->query("INSERT INTO bookings(user_phone,vehicle_id,start_date,end_date,total_price)
-    VALUES('$user','$vehicle','$start','$end','$total')");
+    // 🔥 ADD STATUS HERE
+    $status = "pending";
+
+    $conn->query("INSERT INTO bookings(user_phone,vehicle_id,start_date,end_date,total_price,status)
+    VALUES('$user','$vehicle','$start','$end','$total','$status')");
 
     echo "success";
 }
