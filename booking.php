@@ -7,9 +7,14 @@ $start = $_POST['start_date'];
 $end = $_POST['end_date'];
 $total = $_POST['total_price'];
 
-$payment = "COD"; // 🔥 CASH ON DELIVERY
+$payment = "COD"; // 💰 CASH ON DELIVERY
 
-// Check booking
+// 🔥 GET OWNER PHONE FROM VEHICLE
+$getOwner = $conn->query("SELECT owner_phone FROM vehicles WHERE id='$vehicle'");
+$row = $getOwner->fetch_assoc();
+$owner = $row['owner_phone'];
+
+// 🔥 CHECK BOOKING
 $check = $conn->query("SELECT * FROM bookings 
 WHERE vehicle_id='$vehicle'
 AND (
@@ -22,8 +27,9 @@ if($check->num_rows > 0){
     echo "already booked";
 }else{
 
-    $conn->query("INSERT INTO bookings(user_phone,vehicle_id,start_date,end_date,total_price,payment_mode)
-    VALUES('$user','$vehicle','$start','$end','$total','$payment')");
+    // 🔥 INSERT WITH OWNER PHONE + PAYMENT
+    $conn->query("INSERT INTO bookings(user_phone, owner_phone, vehicle_id, start_date, end_date, total_price, payment_mode)
+    VALUES('$user','$owner','$vehicle','$start','$end','$total','$payment')");
 
     echo "success";
 }
