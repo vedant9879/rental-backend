@@ -11,6 +11,7 @@ $qty = $_POST['quantity'] ?? 1;
 $plan = $_POST['booking_plan'] ?? '1 Day';
 
 $payment = "COD";
+$status = "pending";
 
 $getOwner = $conn->query(
 "SELECT owner_phone FROM vehicles WHERE id='$vehicle'"
@@ -28,14 +29,20 @@ OR
 )");
 
 if($check->num_rows > 0){
+
     echo "already booked";
+
 }else{
 
 $conn->query("INSERT INTO bookings
-(user_phone,owner_phone,vehicle_id,start_date,end_date,total_price,payment_mode,quantity,booking_plan)
+(user_phone, owner_phone, vehicle_id,
+start_date, end_date, total_price,
+payment_mode, quantity, booking_plan, status)
 
 VALUES
-('$user','$owner','$vehicle','$start','$end','$total','$payment','$qty','$plan')");
+('$user','$owner','$vehicle',
+'$start','$end','$total',
+'$payment','$qty','$plan','$status')");
 
 echo "success";
 }
