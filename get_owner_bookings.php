@@ -3,16 +3,23 @@ include "db.php";
 
 $owner = $_GET['owner_phone'];
 
-$sql = "SELECT b.id, b.user_phone, b.start_date, b.end_date, b.total_price, b.status,
+$sql = "SELECT 
+        b.id,
+        b.user_phone,
+        b.owner_phone,
+        b.start_date,
+        b.end_date,
+        b.total_price,
+        b.status,
         v.vehicle_name
         FROM bookings b
         JOIN vehicles v ON b.vehicle_id = v.id
-        WHERE v.owner_phone='$owner'
+        WHERE b.owner_phone='$owner'
         ORDER BY b.id DESC";
 
-$res = mysqli_query($conn,$sql);
+$res = mysqli_query($conn, $sql);
 
-$data = [];
+$data = array();
 
 while($row = mysqli_fetch_assoc($res)){
     $data[] = $row;
