@@ -11,6 +11,8 @@ $sql = "SELECT
         b.start_date,
         b.end_date,
         b.total_price,
+        b.quantity,
+        b.booking_plan,
         b.status
         FROM bookings b
         JOIN vehicles v ON b.vehicle_id = v.id
