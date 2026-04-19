@@ -14,18 +14,24 @@ $payment = "COD";
 $status  = "pending";
 
 /* GET OWNER + STOCK */
-$get = $conn->query(
-"SELECT owner_phone, quantity
- FROM vehicles
- WHERE id='$vehicle'"
-);
+$get = $conn->query("
+SELECT owner_phone, quantity
+FROM vehicles
+WHERE id='$vehicle'
+");
+
+if($get->num_rows == 0){
+    echo "Vehicle not found";
+    exit();
+}
 
 $row = $get->fetch_assoc();
 
 $owner = $row['owner_phone'];
-$stock = $row['quantity'];
+$stock = (int)$row['quantity'];
+$qty   = (int)$qty;
 
-/* CHECK USER REQUESTED QTY */
+/* CHECK STOCK */
 if($qty > $stock){
     echo "Only $stock available";
     exit();
@@ -44,26 +50,26 @@ OR start_date BETWEEN '$start' AND '$end'
 ");
 
 if($check->num_rows > 0){
-
     echo "already booked";
     exit();
-
 }
 
 /* INSERT BOOKING */
-$conn->query("
+$insert = $conn->query("
 INSERT INTO bookings
 (user_phone, owner_phone, vehicle_id,
 start_date, end_date, total_price,
-payment_mode, quantity,
-booking_plan, status)
+payment_mode, quantity, booking_plan, status)
 
 VALUES
 ('$user','$owner','$vehicle',
 '$start','$end','$total',
-'$payment','$qty',
-'$plan','$status')
+'$payment','$qty','$plan','$status')
 ");
 
-echo "success";
+if($insert){
+    echo "success";
+}else{
+    echo "error";
+}
 ?>
