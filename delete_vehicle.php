@@ -3,16 +3,28 @@ include "db.php";
 
 $id = $_POST['vehicle_id'] ?? '';
 
-if($id == ""){
-    echo json_encode(["status"=>"error","msg"=>"ID missing"]);
-    exit;
+if($id == ''){
+    echo "ID missing";
+    exit();
 }
 
-$sql = "DELETE FROM vehicles WHERE id='$id'";
+$check = mysqli_query($conn,
+"SELECT id FROM vehicles WHERE id='$id'");
 
-if(mysqli_query($conn,$sql)){
-    echo json_encode(["status"=>"success"]);
+if(mysqli_num_rows($check) == 0){
+    echo "Vehicle not found";
+    exit();
+}
+
+$sql = "DELETE FROM vehicles
+        WHERE id='$id'";
+
+if(mysqli_query($conn, $sql)){
+
+    echo "success";
+
 }else{
-    echo json_encode(["status"=>"error"]);
+
+    echo "error";
 }
 ?>
