@@ -7,7 +7,7 @@ $start   = $_POST['start_date'] ?? '';
 $end     = $_POST['end_date'] ?? '';
 $total   = $_POST['total_price'] ?? '';
 
-$qty     = $_POST['quantity'] ?? 1;
+$qty     = (int)($_POST['quantity'] ?? 1);
 $plan    = $_POST['booking_plan'] ?? '1 Day';
 $payment = $_POST['payment_mode'] ?? 'Cash on Delivery';
 
@@ -19,7 +19,7 @@ if($user=='' || $vehicle=='' || $start=='' || $end==''){
     exit();
 }
 
-/* VEHICLE DATA */
+/* GET VEHICLE STOCK */
 $get = mysqli_query($conn,
 "SELECT owner_phone, quantity
  FROM vehicles
@@ -35,18 +35,15 @@ $row = mysqli_fetch_assoc($get);
 $owner = $row['owner_phone'];
 $stock = (int)$row['quantity'];
 
-/* ACTIVE SAME DATE BOOKED QTY */
-/* old expired bookings ignored */
+/* FINAL CORRECT OVERLAP STOCK CHECK */
 $booked = mysqli_query($conn,
-"SELECT SUM(quantity) as total_booked
+"SELECT IFNULL(SUM(quantity),0) as total_booked
  FROM bookings
  WHERE vehicle_id='$vehicle'
- AND status!='cancelled'
- AND end_date >= CURDATE()
+ AND status IN ('pending','accepted')
  AND (
- '$start' BETWEEN start_date AND end_date
- OR '$end' BETWEEN start_date AND end_date
- OR start_date BETWEEN '$start' AND '$end'
+      start_date <= '$end'
+      AND end_date >= '$start'
  )");
 
 $b = mysqli_fetch_assoc($booked);
@@ -56,10 +53,10 @@ $used = (int)$b['total_booked'];
 $available = $stock - $used;
 
 if($available < 0){
-    $available = 0;
+   $available = 0;
 }
 
-/* CHECK AVAILABLE */
+/* CHECK STOCK */
 if($qty > $available){
 
    echo "Only $available Available";
