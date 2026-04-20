@@ -13,13 +13,13 @@ $payment = $_POST['payment_mode'] ?? 'Cash on Delivery';
 
 $status = "pending";
 
-/* VALIDATION */
+/* CHECK EMPTY */
 if($user=='' || $vehicle=='' || $start=='' || $end==''){
     echo "Missing Data";
     exit();
 }
 
-/* GET VEHICLE STOCK */
+/* GET VEHICLE */
 $get = mysqli_query($conn,
 "SELECT owner_phone, quantity
  FROM vehicles
@@ -35,9 +35,9 @@ $row = mysqli_fetch_assoc($get);
 $owner = $row['owner_phone'];
 $stock = (int)$row['quantity'];
 
-/* FINAL CORRECT OVERLAP STOCK CHECK */
+/* CHECK ALREADY BOOKED QTY FOR SAME DATE */
 $booked = mysqli_query($conn,
-"SELECT IFNULL(SUM(quantity),0) as total_booked
+"SELECT IFNULL(SUM(quantity),0) as used
  FROM bookings
  WHERE vehicle_id='$vehicle'
  AND status IN ('pending','accepted')
@@ -48,19 +48,19 @@ $booked = mysqli_query($conn,
 
 $b = mysqli_fetch_assoc($booked);
 
-$used = (int)$b['total_booked'];
+$used = (int)$b['used'];
 
 $available = $stock - $used;
 
 if($available < 0){
-   $available = 0;
+    $available = 0;
 }
 
-/* CHECK STOCK */
+/* FINAL STOCK CHECK */
 if($qty > $available){
 
-   echo "Only $available Available";
-   exit();
+    echo "Only $available Available";
+    exit();
 }
 
 /* INSERT BOOKING */
@@ -78,10 +78,10 @@ VALUES
 
 if(mysqli_query($conn,$sql)){
 
-   echo "success";
+    echo "success";
 
 }else{
 
-   echo "Booking Failed";
+    echo "Booking Failed";
 }
 ?>
