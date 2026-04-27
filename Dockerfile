@@ -6,4 +6,4 @@ COPY . .
 
 RUN docker-php-ext-install mysqli
 
-CMD php -S 0.0.0.0:$PORT
+CMD sh -c "php -S 0.0.0.0:$PORT -t /app"
