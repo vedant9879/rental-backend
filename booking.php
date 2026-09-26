@@ -1,87 +1,251 @@
 <?php
+
 include "db.php";
 
-$user    = $_POST['user_phone'] ?? '';
-$vehicle = $_POST['vehicle_id'] ?? '';
-$start   = $_POST['start_date'] ?? '';
-$end     = $_POST['end_date'] ?? '';
-$total   = $_POST['total_price'] ?? '';
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: text/plain; charset=UTF-8");
+
+/*
+|--------------------------------------------------------------------------
+| RECEIVE BOOKING DATA
+|--------------------------------------------------------------------------
+*/
+
+$user    = trim($_POST['user_phone'] ?? '');
+$vehicle = trim($_POST['vehicle_id'] ?? '');
+$start   = trim($_POST['start_date'] ?? '');
+$end     = trim($_POST['end_date'] ?? '');
+$total   = trim($_POST['total_price'] ?? '');
 
 $qty     = (int)($_POST['quantity'] ?? 1);
-$plan    = $_POST['booking_plan'] ?? '1 Day';
-$payment = $_POST['payment_mode'] ?? 'Cash on Delivery';
+$plan    = trim($_POST['booking_plan'] ?? '1 Day');
+$payment = trim($_POST['payment_mode'] ?? 'Cash on Delivery');
 
 $status = "pending";
 
-/* CHECK EMPTY */
-if($user=='' || $vehicle=='' || $start=='' || $end==''){
+
+/*
+|--------------------------------------------------------------------------
+| BASIC VALIDATION
+|--------------------------------------------------------------------------
+*/
+
+if (
+    $user === '' ||
+    $vehicle === '' ||
+    $start === '' ||
+    $end === '' ||
+    $total === ''
+) {
     echo "Missing Data";
     exit();
 }
 
-/* GET VEHICLE */
-$get = mysqli_query($conn,
-"SELECT owner_phone, quantity
- FROM vehicles
- WHERE id='$vehicle'");
+if ($qty <= 0) {
+    echo "Invalid Quantity";
+    exit();
+}
 
-if(mysqli_num_rows($get)==0){
+
+/*
+|--------------------------------------------------------------------------
+| CHECK VEHICLE
+|--------------------------------------------------------------------------
+*/
+
+$sqlVehicle = "
+    SELECT owner_phone, quantity
+    FROM vehicles
+    WHERE id = ?
+    LIMIT 1
+";
+
+$stmtVehicle = mysqli_prepare($conn, $sqlVehicle);
+
+if (!$stmtVehicle) {
+    echo "Database Error";
+    exit();
+}
+
+mysqli_stmt_bind_param(
+    $stmtVehicle,
+    "i",
+    $vehicle
+);
+
+mysqli_stmt_execute($stmtVehicle);
+
+$resultVehicle = mysqli_stmt_get_result($stmtVehicle);
+
+if (!$resultVehicle || mysqli_num_rows($resultVehicle) === 0) {
+
+    mysqli_stmt_close($stmtVehicle);
+
     echo "Vehicle Not Found";
     exit();
 }
 
-$row = mysqli_fetch_assoc($get);
+$vehicleData = mysqli_fetch_assoc($resultVehicle);
 
-$owner = $row['owner_phone'];
-$stock = (int)$row['quantity'];
+$owner = $vehicleData['owner_phone'];
+$stock = (int)$vehicleData['quantity'];
 
-/* CHECK ALREADY BOOKED QTY FOR SAME DATE */
-$booked = mysqli_query($conn,
-"SELECT IFNULL(SUM(quantity),0) as used
- FROM bookings
- WHERE vehicle_id='$vehicle'
- AND status IN ('pending','accepted')
- AND (
-      start_date <= '$end'
-      AND end_date >= '$start'
- )");
+mysqli_stmt_close($stmtVehicle);
 
-$b = mysqli_fetch_assoc($booked);
 
-$used = (int)$b['used'];
+/*
+|--------------------------------------------------------------------------
+| VALIDATE STOCK
+|--------------------------------------------------------------------------
+*/
 
-$available = $stock - $used;
-
-if($available < 0){
-    $available = 0;
-}
-
-/* FINAL STOCK CHECK */
-if($qty > $available){
-
-    echo "Only $available Available";
+if ($stock <= 0) {
+    echo "Vehicle Not Available";
     exit();
 }
 
-/* INSERT BOOKING */
-$sql = "INSERT INTO bookings
-(user_phone, owner_phone, vehicle_id,
-start_date, end_date, total_price,
-payment_mode, quantity,
-booking_plan, status)
 
-VALUES
-('$user','$owner','$vehicle',
-'$start','$end','$total',
-'$payment','$qty',
-'$plan','$status')";
+/*
+|--------------------------------------------------------------------------
+| CHECK EXISTING BOOKINGS
+|--------------------------------------------------------------------------
+|
+| A booking overlaps when:
+|
+| existing_start <= requested_end
+| AND
+| existing_end >= requested_start
+|
+| Only pending and accepted bookings block stock.
+|--------------------------------------------------------------------------
+*/
 
-if(mysqli_query($conn,$sql)){
+$sqlBooked = "
+    SELECT IFNULL(SUM(quantity), 0) AS used
+    FROM bookings
+    WHERE vehicle_id = ?
+    AND status IN ('pending', 'accepted')
+    AND start_date <= ?
+    AND end_date >= ?
+";
+
+$stmtBooked = mysqli_prepare($conn, $sqlBooked);
+
+if (!$stmtBooked) {
+    echo "Database Error";
+    exit();
+}
+
+mysqli_stmt_bind_param(
+    $stmtBooked,
+    "iss",
+    $vehicle,
+    $end,
+    $start
+);
+
+mysqli_stmt_execute($stmtBooked);
+
+$resultBooked = mysqli_stmt_get_result($stmtBooked);
+
+$bookedData = mysqli_fetch_assoc($resultBooked);
+
+$used = (int)($bookedData['used'] ?? 0);
+
+mysqli_stmt_close($stmtBooked);
+
+
+/*
+|--------------------------------------------------------------------------
+| CALCULATE AVAILABLE STOCK
+|--------------------------------------------------------------------------
+*/
+
+$available = $stock - $used;
+
+if ($available < 0) {
+    $available = 0;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FINAL QUANTITY CHECK
+|--------------------------------------------------------------------------
+*/
+
+if ($qty > $available) {
+
+    echo "Only " . $available . " Available";
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INSERT BOOKING
+|--------------------------------------------------------------------------
+*/
+
+$sqlInsert = "
+    INSERT INTO bookings
+    (
+        user_phone,
+        owner_phone,
+        vehicle_id,
+        start_date,
+        end_date,
+        total_price,
+        payment_mode,
+        quantity,
+        booking_plan,
+        status
+    )
+    VALUES
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+";
+
+$stmtInsert = mysqli_prepare($conn, $sqlInsert);
+
+if (!$stmtInsert) {
+    echo "Database Error";
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INSERT DATA
+|--------------------------------------------------------------------------
+*/
+
+mysqli_stmt_bind_param(
+    $stmtInsert,
+    "ssissssiss",
+    $user,
+    $owner,
+    $vehicle,
+    $start,
+    $end,
+    $total,
+    $payment,
+    $qty,
+    $plan,
+    $status
+);
+
+
+if (mysqli_stmt_execute($stmtInsert)) {
 
     echo "success";
 
-}else{
+} else {
 
     echo "Booking Failed";
 }
+
+
+mysqli_stmt_close($stmtInsert);
+
 ?>
