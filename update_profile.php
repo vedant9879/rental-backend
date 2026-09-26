@@ -1,32 +1,119 @@
 <?php
+
 include "db.php";
 
-$name     = mysqli_real_escape_string($conn, $_POST['name']);
-$phone    = mysqli_real_escape_string($conn, $_POST['phone']);
-$email    = mysqli_real_escape_string($conn, $_POST['email']);
-$address  = mysqli_real_escape_string($conn, $_POST['address']);
-$city     = mysqli_real_escape_string($conn, $_POST['city']);
-$pincode  = mysqli_real_escape_string($conn, $_POST['pincode']);
-$aadhar   = mysqli_real_escape_string($conn, $_POST['aadhar']);
-$license  = mysqli_real_escape_string($conn, $_POST['license']);
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json; charset=UTF-8");
 
-$sql = "UPDATE users SET
-        name='$name',
-        email='$email',
-        address='$address',
-        city='$city',
-        pincode='$pincode',
-        aadhar_number='$aadhar',
-        license_number='$license'
-        WHERE phone='$phone'";
 
-if(mysqli_query($conn, $sql)){
+/*
+|--------------------------------------------------------------------------
+| RECEIVE PROFILE DATA
+|--------------------------------------------------------------------------
+*/
+
+$name    = trim($_POST['name'] ?? '');
+$phone   = trim($_POST['phone'] ?? '');
+$email   = trim($_POST['email'] ?? '');
+$address = trim($_POST['address'] ?? '');
+$city    = trim($_POST['city'] ?? '');
+$pincode = trim($_POST['pincode'] ?? '');
+$aadhar  = trim($_POST['aadhar'] ?? '');
+$license = trim($_POST['license'] ?? '');
+
+
+/*
+|--------------------------------------------------------------------------
+| BASIC VALIDATION
+|--------------------------------------------------------------------------
+*/
+
+if ($name === '' || $phone === '') {
+
     echo json_encode([
-        "status"=>"success"
+        "status" => "error",
+        "message" => "Name and phone are required"
     ]);
-}else{
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| UPDATE USER
+|--------------------------------------------------------------------------
+*/
+
+$sql = "
+    UPDATE users
+    SET
+        name = ?,
+        email = ?,
+        address = ?,
+        city = ?,
+        pincode = ?,
+        aadhar_number = ?,
+        license_number = ?
+    WHERE phone = ?
+";
+
+
+$stmt = mysqli_prepare($conn, $sql);
+
+if (!$stmt) {
+
     echo json_encode([
-        "status"=>"error"
+        "status" => "error",
+        "message" => "Database Error"
+    ]);
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| BIND PARAMETERS
+|--------------------------------------------------------------------------
+*/
+
+mysqli_stmt_bind_param(
+    $stmt,
+    "ssssssss",
+    $name,
+    $email,
+    $address,
+    $city,
+    $pincode,
+    $aadhar,
+    $license,
+    $phone
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| EXECUTE
+|--------------------------------------------------------------------------
+*/
+
+if (mysqli_stmt_execute($stmt)) {
+
+    echo json_encode([
+        "status" => "success",
+        "message" => "Profile Updated Successfully"
+    ]);
+
+} else {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Profile Update Failed"
     ]);
 }
+
+
+mysqli_stmt_close($stmt);
+
 ?>
