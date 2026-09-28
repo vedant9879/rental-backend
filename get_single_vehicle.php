@@ -2,13 +2,22 @@
 
 include "db.php";
 
-$id = $_GET['vehicle_id'] ?? '';
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json");
 
-if (trim($id) === '') {
+$id = isset($_GET['vehicle_id'])
+    ? intval($_GET['vehicle_id'])
+    : 0;
+
+if ($id <= 0) {
+
     echo json_encode([
         "status" => "error",
         "message" => "Vehicle ID Missing"
     ]);
+
     exit();
 }
 
@@ -27,15 +36,18 @@ $sql = "
         vehicle_image
     FROM vehicles
     WHERE id = ?
+    LIMIT 1
 ";
 
 $stmt = mysqli_prepare($conn, $sql);
 
 if (!$stmt) {
+
     echo json_encode([
         "status" => "error",
         "message" => "Database Error"
     ]);
+
     exit();
 }
 
