@@ -60,13 +60,18 @@ $sqlBooking = "
         id,
         vehicle_id,
         quantity,
+        start_date,
+        end_date,
         status
     FROM bookings
     WHERE id = ?
     LIMIT 1
 ";
 
-$stmtBooking = mysqli_prepare($conn, $sqlBooking);
+$stmtBooking = mysqli_prepare(
+    $conn,
+    $sqlBooking
+);
 
 if (!$stmtBooking) {
 
@@ -80,38 +85,45 @@ mysqli_stmt_bind_param(
     $id
 );
 
-mysqli_stmt_execute($stmtBooking);
+mysqli_stmt_execute(
+    $stmtBooking
+);
 
 $resultBooking =
-    mysqli_stmt_get_result($stmtBooking);
+    mysqli_stmt_get_result(
+        $stmtBooking
+    );
 
 if (
     !$resultBooking ||
     mysqli_num_rows($resultBooking) === 0
 ) {
 
-    mysqli_stmt_close($stmtBooking);
+    mysqli_stmt_close(
+        $stmtBooking
+    );
 
     echo "Booking Not Found";
     exit();
 }
 
-$booking = mysqli_fetch_assoc($resultBooking);
+$booking =
+    mysqli_fetch_assoc(
+        $resultBooking
+    );
 
-$currentStatus = $booking['status'];
+$currentStatus =
+    $booking['status'];
 
-mysqli_stmt_close($stmtBooking);
+mysqli_stmt_close(
+    $stmtBooking
+);
 
 
 /*
 |--------------------------------------------------------------------------
-| CHECK STATUS TRANSITION
+| SAME STATUS
 |--------------------------------------------------------------------------
-*/
-
-/*
-| If the booking already has the requested status,
-| there is nothing to change.
 */
 
 if ($currentStatus === $status) {
@@ -128,7 +140,7 @@ if ($currentStatus === $status) {
 */
 
 /*
-| Cancelled bookings cannot be accepted/completed again.
+| Cancelled bookings cannot be reopened.
 */
 
 if ($currentStatus === "cancelled") {
@@ -170,20 +182,27 @@ if ($status === "accepted") {
 
     /*
     |--------------------------------------------------------------------------
-    | CHECK VEHICLE AVAILABILITY
+    | BOOKING DATA
     |--------------------------------------------------------------------------
-    |
-    | We calculate availability from existing pending/accepted
-    | bookings instead of permanently changing vehicles.quantity.
-    |
     */
 
-    $vehicleId = (int)$booking['vehicle_id'];
-    $requestedQty = (int)$booking['quantity'];
+    $vehicleId =
+        (int)$booking['vehicle_id'];
+
+    $requestedQty =
+        (int)$booking['quantity'];
+
+    $bookingStart =
+        $booking['start_date'];
+
+    $bookingEnd =
+        $booking['end_date'];
 
 
     /*
-    | Get vehicle stock
+    |--------------------------------------------------------------------------
+    | GET VEHICLE STOCK
+    |--------------------------------------------------------------------------
     */
 
     $sqlVehicle = "
@@ -194,7 +213,10 @@ if ($status === "accepted") {
     ";
 
     $stmtVehicle =
-        mysqli_prepare($conn, $sqlVehicle);
+        mysqli_prepare(
+            $conn,
+            $sqlVehicle
+        );
 
     if (!$stmtVehicle) {
 
@@ -208,36 +230,66 @@ if ($status === "accepted") {
         $vehicleId
     );
 
-    mysqli_stmt_execute($stmtVehicle);
+    mysqli_stmt_execute(
+        $stmtVehicle
+    );
 
     $resultVehicle =
-        mysqli_stmt_get_result($stmtVehicle);
+        mysqli_stmt_get_result(
+            $stmtVehicle
+        );
 
     if (
         !$resultVehicle ||
         mysqli_num_rows($resultVehicle) === 0
     ) {
 
-        mysqli_stmt_close($stmtVehicle);
+        mysqli_stmt_close(
+            $stmtVehicle
+        );
 
         echo "Vehicle Not Found";
         exit();
     }
 
-    $vehicle = mysqli_fetch_assoc($resultVehicle);
+    $vehicle =
+        mysqli_fetch_assoc(
+            $resultVehicle
+        );
 
-    $stock = (int)$vehicle['quantity'];
+    $stock =
+        (int)$vehicle['quantity'];
 
-    mysqli_stmt_close($stmtVehicle);
+    mysqli_stmt_close(
+        $stmtVehicle
+    );
 
 
     /*
     |--------------------------------------------------------------------------
-    | GET OTHER RESERVED QUANTITY
+    | VEHICLE AVAILABLE STOCK
+    |--------------------------------------------------------------------------
+    */
+
+    if ($stock <= 0) {
+
+        echo "Vehicle Not Available";
+        exit();
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET OVERLAPPING ACCEPTED BOOKINGS
     |--------------------------------------------------------------------------
     |
-    | The booking's own quantity is excluded because we are
-    | checking whether this booking can safely become accepted.
+    | Existing booking overlaps when:
+    |
+    | existing_start <= requested_end
+    | AND
+    | existing_end >= requested_start
+    |
+    | The current booking itself is excluded.
     |
     */
 
@@ -248,10 +300,15 @@ if ($status === "accepted") {
         WHERE vehicle_id = ?
         AND id != ?
         AND status = 'accepted'
+        AND start_date <= ?
+        AND end_date >= ?
     ";
 
     $stmtReserved =
-        mysqli_prepare($conn, $sqlReserved);
+        mysqli_prepare(
+            $conn,
+            $sqlReserved
+        );
 
     if (!$stmtReserved) {
 
@@ -261,41 +318,56 @@ if ($status === "accepted") {
 
     mysqli_stmt_bind_param(
         $stmtReserved,
-        "ii",
+        "iiss",
         $vehicleId,
-        $id
+        $id,
+        $bookingEnd,
+        $bookingStart
     );
 
-    mysqli_stmt_execute($stmtReserved);
+    mysqli_stmt_execute(
+        $stmtReserved
+    );
 
     $resultReserved =
-        mysqli_stmt_get_result($stmtReserved);
+        mysqli_stmt_get_result(
+            $stmtReserved
+        );
 
     $reservedData =
-        mysqli_fetch_assoc($resultReserved);
+        mysqli_fetch_assoc(
+            $resultReserved
+        );
 
     $reserved =
-        (int)($reservedData['reserved'] ?? 0);
+        (int)(
+            $reservedData['reserved']
+            ?? 0
+        );
 
-    mysqli_stmt_close($stmtReserved);
+    mysqli_stmt_close(
+        $stmtReserved
+    );
 
 
     /*
     |--------------------------------------------------------------------------
-    | AVAILABLE STOCK
+    | CALCULATE AVAILABLE STOCK
     |--------------------------------------------------------------------------
     */
 
-    $available = $stock - $reserved;
+    $available =
+        $stock - $reserved;
 
     if ($available < 0) {
+
         $available = 0;
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | FINAL AVAILABILITY CHECK
+    | FINAL STOCK CHECK
     |--------------------------------------------------------------------------
     */
 
@@ -309,7 +381,7 @@ if ($status === "accepted") {
 
 /*
 |--------------------------------------------------------------------------
-| UPDATE BOOKING STATUS
+| STATUS UPDATE
 |--------------------------------------------------------------------------
 */
 
@@ -320,7 +392,10 @@ $sqlUpdate = "
 ";
 
 $stmtUpdate =
-    mysqli_prepare($conn, $sqlUpdate);
+    mysqli_prepare(
+        $conn,
+        $sqlUpdate
+    );
 
 if (!$stmtUpdate) {
 
@@ -342,7 +417,11 @@ mysqli_stmt_bind_param(
 |--------------------------------------------------------------------------
 */
 
-if (mysqli_stmt_execute($stmtUpdate)) {
+if (
+    mysqli_stmt_execute(
+        $stmtUpdate
+    )
+) {
 
     echo "success";
 
@@ -352,6 +431,8 @@ if (mysqli_stmt_execute($stmtUpdate)) {
 }
 
 
-mysqli_stmt_close($stmtUpdate);
+mysqli_stmt_close(
+    $stmtUpdate
+);
 
 ?>
