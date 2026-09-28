@@ -1,30 +1,146 @@
 <?php
+
 include "db.php";
 
-$id = $_POST['vehicle_id'] ?? '';
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
 
-if($id == ''){
-    echo "ID missing";
+
+/*
+|--------------------------------------------------------------------------
+| RECEIVE VEHICLE ID
+|--------------------------------------------------------------------------
+*/
+
+$id = isset($_POST['vehicle_id'])
+    ? intval($_POST['vehicle_id'])
+    : 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| CHECK VEHICLE ID
+|--------------------------------------------------------------------------
+*/
+
+if ($id <= 0) {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Vehicle ID is required"
+    ]);
+
     exit();
 }
 
-$check = mysqli_query($conn,
-"SELECT id FROM vehicles WHERE id='$id'");
 
-if(mysqli_num_rows($check) == 0){
-    echo "Vehicle not found";
+/*
+|--------------------------------------------------------------------------
+| CHECK VEHICLE EXISTS
+|--------------------------------------------------------------------------
+*/
+
+$checkSql = "
+    SELECT id
+    FROM vehicles
+    WHERE id = ?
+    LIMIT 1
+";
+
+$checkStmt = mysqli_prepare($conn, $checkSql);
+
+if (!$checkStmt) {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Database error"
+    ]);
+
     exit();
 }
 
-$sql = "DELETE FROM vehicles
-        WHERE id='$id'";
+mysqli_stmt_bind_param(
+    $checkStmt,
+    "i",
+    $id
+);
 
-if(mysqli_query($conn, $sql)){
+mysqli_stmt_execute($checkStmt);
 
-    echo "success";
+$result = mysqli_stmt_get_result($checkStmt);
 
-}else{
+if (!$result || mysqli_num_rows($result) === 0) {
 
-    echo "error";
+    mysqli_stmt_close($checkStmt);
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Vehicle not found"
+    ]);
+
+    exit();
 }
+
+mysqli_stmt_close($checkStmt);
+
+
+/*
+|--------------------------------------------------------------------------
+| DELETE VEHICLE
+|--------------------------------------------------------------------------
+*/
+
+$deleteSql = "
+    DELETE FROM vehicles
+    WHERE id = ?
+";
+
+$deleteStmt = mysqli_prepare(
+    $conn,
+    $deleteSql
+);
+
+if (!$deleteStmt) {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Database error"
+    ]);
+
+    exit();
+}
+
+mysqli_stmt_bind_param(
+    $deleteStmt,
+    "i",
+    $id
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| EXECUTE DELETE
+|--------------------------------------------------------------------------
+*/
+
+if (mysqli_stmt_execute($deleteStmt)) {
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Vehicle removed successfully"
+    ]);
+
+} else {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Unable to delete vehicle"
+    ]);
+}
+
+
+mysqli_stmt_close($deleteStmt);
+
 ?>
