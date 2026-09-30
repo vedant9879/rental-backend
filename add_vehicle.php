@@ -5,159 +5,56 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-
-/*
-|--------------------------------------------------------------------------
-| RECEIVE VEHICLE DATA
-|--------------------------------------------------------------------------
-*/
-
-$name =
-    trim($_POST['vehicle_name'] ?? '');
-
-$type =
-    trim($_POST['vehicle_type'] ?? '');
-
-$price =
-    trim($_POST['price_per_day'] ?? '0');
-
-$owner =
-    trim($_POST['owner_phone'] ?? '');
-
-$image =
-    trim($_POST['vehicle_image'] ?? '');
-
-$city =
-    trim($_POST['city'] ?? '');
-
-$address =
-    trim($_POST['address'] ?? '');
-
-$quantity =
-    trim($_POST['quantity'] ?? '1');
-
-$deposit =
-    trim($_POST['deposit'] ?? '0');
-
-$price6 =
-    trim($_POST['price_6hr'] ?? '0');
-
-$price12 =
-    trim($_POST['price_12hr'] ?? '0');
-
-
-/*
-|--------------------------------------------------------------------------
-| REQUIRED FIELDS
-|--------------------------------------------------------------------------
-*/
+$ownerPhone = trim($_POST['owner_phone'] ?? '');
+$vehicleName = trim($_POST['vehicle_name'] ?? '');
+$vehicleType = trim($_POST['vehicle_type'] ?? '');
+$pricePerDay = trim($_POST['price_per_day'] ?? '');
+$price6hr = trim($_POST['price_6hr'] ?? '0');
+$price12hr = trim($_POST['price_12hr'] ?? '0');
+$city = trim($_POST['city'] ?? '');
+$address = trim($_POST['address'] ?? '');
+$quantity = trim($_POST['quantity'] ?? '');
+$deposit = trim($_POST['deposit'] ?? '');
+$vehicleImage = trim($_POST['vehicle_image'] ?? '');
 
 if (
-    $name === '' ||
-    $type === '' ||
-    $price === '' ||
-    $owner === ''
+    $ownerPhone === '' ||
+    $vehicleName === '' ||
+    $vehicleType === '' ||
+    $pricePerDay === '' ||
+    $city === '' ||
+    $quantity === ''
 ) {
-
     echo json_encode([
-        "status" => "empty"
+        "status" => "error",
+        "message" => "Required vehicle fields are missing"
     ]);
-
-    exit;
+    exit();
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| IMAGE VALIDATION
-|--------------------------------------------------------------------------
-*/
-
-if (
-    $image === '' ||
-    strpos(
-        $image,
-        "raw.githubusercontent.com"
-    ) === false
-) {
-
-    echo json_encode([
-        "status" => "invalid_image"
-    ]);
-
-    exit;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| NUMERIC VALIDATION
-|--------------------------------------------------------------------------
-*/
-
-if (!is_numeric($price)) {
-
-    echo json_encode([
-        "status" => "invalid_price"
-    ]);
-
-    exit;
-}
-
-if (
-    $price6 !== '' &&
-    !is_numeric($price6)
-) {
-
-    echo json_encode([
-        "status" => "invalid_price6"
-    ]);
-
-    exit;
-}
-
-if (
-    $price12 !== '' &&
-    !is_numeric($price12)
-) {
-
-    echo json_encode([
-        "status" => "invalid_price12"
-    ]);
-
-    exit;
-}
-
-if (
+if (!is_numeric($pricePerDay) ||
+    !is_numeric($price6hr) ||
+    !is_numeric($price12hr) ||
     !is_numeric($quantity) ||
-    (int)$quantity < 1
-) {
-
-    echo json_encode([
-        "status" => "invalid_quantity"
-    ]);
-
-    exit;
-}
-
-if (
-    $deposit !== '' &&
     !is_numeric($deposit)
 ) {
-
     echo json_encode([
-        "status" => "invalid_deposit"
+        "status" => "error",
+        "message" => "Invalid vehicle values"
     ]);
-
-    exit;
+    exit();
 }
+
+$pricePerDay = (float)$pricePerDay;
+$price6hr = (float)$price6hr;
+$price12hr = (float)$price12hr;
+$quantity = (int)$quantity;
+$deposit = (float)$deposit;
 
 
 /*
-|--------------------------------------------------------------------------
-| INSERT VEHICLE
-|--------------------------------------------------------------------------
-*/
+ * Insert vehicle
+ */
 
 $sql = "
     INSERT INTO vehicles
@@ -165,85 +62,131 @@ $sql = "
         owner_phone,
         vehicle_name,
         vehicle_type,
-        price_per_day,
         vehicle_image,
+        price_per_day,
+        price_6hr,
+        price_12hr,
         city,
         address,
         quantity,
-        deposit,
-        price_6hr,
-        price_12hr
+        deposit
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ";
 
-
-$stmt =
-    mysqli_prepare(
-        $conn,
-        $sql
-    );
-
+$stmt = mysqli_prepare($conn, $sql);
 
 if (!$stmt) {
 
     echo json_encode([
         "status" => "error",
-        "message" => "Database Error"
+        "message" => "Database error"
     ]);
 
-    exit;
+    exit();
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| BIND PARAMETERS
-|--------------------------------------------------------------------------
-*/
-
 mysqli_stmt_bind_param(
     $stmt,
-    "sssssssssss",
-    $owner,
-    $name,
-    $type,
-    $price,
-    $image,
+    "ssssdddssid",
+    $ownerPhone,
+    $vehicleName,
+    $vehicleType,
+    $vehicleImage,
+    $pricePerDay,
+    $price6hr,
+    $price12hr,
     $city,
     $address,
     $quantity,
-    $deposit,
-    $price6,
-    $price12
+    $deposit
 );
 
 
-/*
-|--------------------------------------------------------------------------
-| EXECUTE
-|--------------------------------------------------------------------------
-*/
+if (!mysqli_stmt_execute($stmt)) {
 
-if (
-    mysqli_stmt_execute($stmt)
-) {
-
-    echo json_encode([
-        "status" => "success",
-        "message" => "Vehicle added successfully",
-        "vehicle_id" => mysqli_insert_id($conn)
-    ]);
-
-} else {
+    mysqli_stmt_close($stmt);
 
     echo json_encode([
         "status" => "error",
         "message" => "Unable to add vehicle"
     ]);
+
+    exit();
 }
 
 
+$vehicleId =
+    mysqli_insert_id($conn);
+
 mysqli_stmt_close($stmt);
+
+
+/*
+ * Create notification for owner.
+ */
+
+$title =
+    "Vehicle Listed Successfully";
+
+$message =
+    $vehicleName .
+    " has been successfully added to your RentX listings.";
+
+$type =
+    "vehicle";
+
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+
+$stmtNotification =
+    mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+
+if ($stmtNotification) {
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $ownerPhone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
+}
+
+
+/*
+ * Final response.
+ */
+
+echo json_encode([
+    "status" => "success",
+    "message" => "Vehicle added successfully",
+    "vehicle_id" => $vehicleId
+]);
 
 ?>
