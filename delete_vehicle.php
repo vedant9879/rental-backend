@@ -3,55 +3,42 @@
 include "db.php";
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json; charset=UTF-8");
 
+$vehicleId = trim($_POST['vehicle_id'] ?? '');
 
-/*
-|--------------------------------------------------------------------------
-| RECEIVE VEHICLE ID
-|--------------------------------------------------------------------------
-*/
-
-$id = isset($_POST['vehicle_id'])
-    ? intval($_POST['vehicle_id'])
-    : 0;
-
-
-/*
-|--------------------------------------------------------------------------
-| CHECK VEHICLE ID
-|--------------------------------------------------------------------------
-*/
-
-if ($id <= 0) {
+if ($vehicleId === '' || !ctype_digit($vehicleId)) {
 
     echo json_encode([
         "success" => false,
-        "message" => "Vehicle ID is required"
+        "message" => "Invalid vehicle ID"
     ]);
 
     exit();
 }
 
+$vehicleId = (int)$vehicleId;
+
 
 /*
-|--------------------------------------------------------------------------
-| CHECK VEHICLE EXISTS
-|--------------------------------------------------------------------------
-*/
+ * Get vehicle information before deleting.
+ */
 
-$checkSql = "
-    SELECT id
+$sqlVehicle = "
+    SELECT
+        vehicle_name,
+        owner_phone
     FROM vehicles
     WHERE id = ?
     LIMIT 1
 ";
 
-$checkStmt = mysqli_prepare($conn, $checkSql);
+$stmtVehicle = mysqli_prepare(
+    $conn,
+    $sqlVehicle
+);
 
-if (!$checkStmt) {
+if (!$stmtVehicle) {
 
     echo json_encode([
         "success" => false,
@@ -62,18 +49,25 @@ if (!$checkStmt) {
 }
 
 mysqli_stmt_bind_param(
-    $checkStmt,
+    $stmtVehicle,
     "i",
-    $id
+    $vehicleId
 );
 
-mysqli_stmt_execute($checkStmt);
+mysqli_stmt_execute(
+    $stmtVehicle
+);
 
-$result = mysqli_stmt_get_result($checkStmt);
+$resultVehicle = mysqli_stmt_get_result(
+    $stmtVehicle
+);
 
-if (!$result || mysqli_num_rows($result) === 0) {
+if (
+    !$resultVehicle ||
+    mysqli_num_rows($resultVehicle) === 0
+) {
 
-    mysqli_stmt_close($checkStmt);
+    mysqli_stmt_close($stmtVehicle);
 
     echo json_encode([
         "success" => false,
@@ -83,26 +77,31 @@ if (!$result || mysqli_num_rows($result) === 0) {
     exit();
 }
 
-mysqli_stmt_close($checkStmt);
+$vehicle = mysqli_fetch_assoc(
+    $resultVehicle
+);
+
+mysqli_stmt_close(
+    $stmtVehicle
+);
 
 
 /*
-|--------------------------------------------------------------------------
-| DELETE VEHICLE
-|--------------------------------------------------------------------------
-*/
+ * Delete vehicle.
+ */
 
-$deleteSql = "
+$sqlDelete = "
     DELETE FROM vehicles
     WHERE id = ?
+    LIMIT 1
 ";
 
-$deleteStmt = mysqli_prepare(
+$stmtDelete = mysqli_prepare(
     $conn,
-    $deleteSql
+    $sqlDelete
 );
 
-if (!$deleteStmt) {
+if (!$stmtDelete) {
 
     echo json_encode([
         "success" => false,
@@ -113,34 +112,86 @@ if (!$deleteStmt) {
 }
 
 mysqli_stmt_bind_param(
-    $deleteStmt,
+    $stmtDelete,
     "i",
-    $id
+    $vehicleId
 );
 
+$deleted =
+    mysqli_stmt_execute(
+        $stmtDelete
+    );
 
-/*
-|--------------------------------------------------------------------------
-| EXECUTE DELETE
-|--------------------------------------------------------------------------
-*/
+mysqli_stmt_close(
+    $stmtDelete
+);
 
-if (mysqli_stmt_execute($deleteStmt)) {
-
-    echo json_encode([
-        "success" => true,
-        "message" => "Vehicle removed successfully"
-    ]);
-
-} else {
+if (!$deleted) {
 
     echo json_encode([
         "success" => false,
-        "message" => "Unable to delete vehicle"
+        "message" => "Unable to remove vehicle"
     ]);
+
+    exit();
 }
 
 
-mysqli_stmt_close($deleteStmt);
+/*
+ * Notification.
+ */
+
+$title =
+    "Vehicle Removed";
+
+$message =
+    $vehicle['vehicle_name'] .
+    " has been removed from your RentX listings.";
+
+$type =
+    "vehicle";
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification = mysqli_prepare(
+    $conn,
+    $sqlNotification
+);
+
+if ($stmtNotification) {
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $vehicle['owner_phone'],
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
+}
+
+
+echo json_encode([
+    "success" => true,
+    "message" => "Vehicle removed successfully"
+]);
 
 ?>
