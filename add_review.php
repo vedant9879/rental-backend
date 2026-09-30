@@ -3,155 +3,128 @@
 include "db.php";
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type");
-header("Content-Type: application/json");
+header("Content-Type: application/json; charset=UTF-8");
 
-$response = array();
+$vehicleId = trim($_POST['vehicle_id'] ?? '');
+$userPhone = trim($_POST['user_phone'] ?? '');
+$userName = trim($_POST['user_name'] ?? '');
+$rating = trim($_POST['rating'] ?? '');
+$comment = trim($_POST['comment'] ?? '');
 
-if ($_SERVER["REQUEST_METHOD"] !== "POST") {
-
+if (
+    $vehicleId === '' ||
+    $userPhone === '' ||
+    $userName === '' ||
+    $rating === '' ||
+    $comment === ''
+) {
     echo json_encode([
-        "success" => false,
-        "message" => "Only POST requests are allowed"
+        "status" => "error",
+        "message" => "Required review fields are missing"
     ]);
-
-    exit;
+    exit();
 }
 
-
-// ============================================================
-// GET DATA
-// ============================================================
-
-$vehicle_id =
-    isset($_POST["vehicle_id"])
-        ? intval($_POST["vehicle_id"])
-        : 0;
-
-$user_phone =
-    isset($_POST["user_phone"])
-        ? trim($_POST["user_phone"])
-        : "";
-
-$user_name =
-    isset($_POST["user_name"])
-        ? trim($_POST["user_name"])
-        : "";
-
-$rating =
-    isset($_POST["rating"])
-        ? floatval($_POST["rating"])
-        : 0;
-
-$comment =
-    isset($_POST["comment"])
-        ? trim($_POST["comment"])
-        : "";
-
-
-// ============================================================
-// VALIDATION
-// ============================================================
-
-if ($vehicle_id <= 0) {
-
+if (!ctype_digit($vehicleId)) {
     echo json_encode([
-        "success" => false,
-        "message" => "Invalid vehicle"
+        "status" => "error",
+        "message" => "Invalid vehicle ID"
     ]);
-
-    exit;
+    exit();
 }
 
-
-if ($user_phone === "") {
-
+if (!is_numeric($rating)) {
     echo json_encode([
-        "success" => false,
-        "message" => "User phone is required"
+        "status" => "error",
+        "message" => "Invalid rating"
     ]);
-
-    exit;
+    exit();
 }
 
-
-if ($user_name === "") {
-
-    echo json_encode([
-        "success" => false,
-        "message" => "User name is required"
-    ]);
-
-    exit;
-}
-
+$vehicleId = (int)$vehicleId;
+$rating = (float)$rating;
 
 if ($rating < 1 || $rating > 5) {
-
     echo json_encode([
-        "success" => false,
+        "status" => "error",
         "message" => "Rating must be between 1 and 5"
     ]);
-
-    exit;
+    exit();
 }
 
 
-if ($comment === "") {
+/*
+ * Get vehicle and owner information.
+ */
 
+$sqlVehicle = "
+    SELECT
+        id,
+        vehicle_name,
+        owner_phone
+    FROM vehicles
+    WHERE id = ?
+    LIMIT 1
+";
+
+$stmtVehicle =
+    mysqli_prepare(
+        $conn,
+        $sqlVehicle
+    );
+
+if (!$stmtVehicle) {
     echo json_encode([
-        "success" => false,
-        "message" => "Review comment is required"
+        "status" => "error",
+        "message" => "Database error"
     ]);
-
-    exit;
+    exit();
 }
-
-
-// ============================================================
-// CHECK VEHICLE
-// ============================================================
-
-$vehicleCheck = mysqli_prepare(
-    $conn,
-    "SELECT id FROM vehicles WHERE id = ? LIMIT 1"
-);
 
 mysqli_stmt_bind_param(
-    $vehicleCheck,
+    $stmtVehicle,
     "i",
-    $vehicle_id
+    $vehicleId
 );
 
-mysqli_stmt_execute($vehicleCheck);
+mysqli_stmt_execute(
+    $stmtVehicle
+);
 
-$vehicleResult =
-    mysqli_stmt_get_result($vehicleCheck);
+$resultVehicle =
+    mysqli_stmt_get_result(
+        $stmtVehicle
+    );
 
-
-if (mysqli_num_rows($vehicleResult) === 0) {
+if (
+    !$resultVehicle ||
+    mysqli_num_rows($resultVehicle) === 0
+) {
+    mysqli_stmt_close($stmtVehicle);
 
     echo json_encode([
-        "success" => false,
+        "status" => "error",
         "message" => "Vehicle not found"
     ]);
-
-    mysqli_stmt_close($vehicleCheck);
-
-    exit;
+    exit();
 }
 
-mysqli_stmt_close($vehicleCheck);
+$vehicle =
+    mysqli_fetch_assoc(
+        $resultVehicle
+    );
+
+mysqli_stmt_close(
+    $stmtVehicle
+);
 
 
-// ============================================================
-// INSERT REVIEW
-// ============================================================
+/*
+ * Insert review.
+ */
 
-$stmt = mysqli_prepare(
-    $conn,
-    "INSERT INTO reviews
+$sqlReview = "
+    INSERT INTO reviews
     (
         vehicle_id,
         user_phone,
@@ -159,40 +132,117 @@ $stmt = mysqli_prepare(
         rating,
         comment
     )
-    VALUES (?, ?, ?, ?, ?)"
-);
+    VALUES (?, ?, ?, ?, ?)
+";
+
+$stmtReview =
+    mysqli_prepare(
+        $conn,
+        $sqlReview
+    );
+
+if (!$stmtReview) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
+    exit();
+}
 
 mysqli_stmt_bind_param(
-    $stmt,
+    $stmtReview,
     "issds",
-    $vehicle_id,
-    $user_phone,
-    $user_name,
+    $vehicleId,
+    $userPhone,
+    $userName,
     $rating,
     $comment
 );
 
-
-if (mysqli_stmt_execute($stmt)) {
-
-    $reviewId =
-        mysqli_insert_id($conn);
+if (!mysqli_stmt_execute($stmtReview)) {
+    mysqli_stmt_close($stmtReview);
 
     echo json_encode([
-        "success" => true,
-        "message" => "Review submitted successfully",
-        "review_id" => $reviewId
+        "status" => "error",
+        "message" => "Unable to add review"
     ]);
+    exit();
+}
 
-} else {
+mysqli_stmt_close($stmtReview);
 
-    echo json_encode([
-        "success" => false,
-        "message" => "Failed to submit review"
-    ]);
+
+/*
+ * Create notification for vehicle owner.
+ */
+
+$ownerPhone =
+    $vehicle['owner_phone'];
+
+$vehicleName =
+    $vehicle['vehicle_name'];
+
+$title =
+    "New Vehicle Review";
+
+$message =
+    $userName .
+    " rated your " .
+    $vehicleName .
+    " " .
+    number_format($rating, 1) .
+    "/5 and left a new review.";
+
+$type =
+    "review";
+
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification =
+    mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+if ($stmtNotification) {
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $ownerPhone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
 }
 
 
-mysqli_stmt_close($stmt);
+/*
+ * Final response.
+ */
+
+echo json_encode([
+    "status" => "success",
+    "message" => "Review added successfully"
+]);
 
 ?>
