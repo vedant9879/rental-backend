@@ -1,21 +1,22 @@
 <?php
 
-include "db.php";
-
+header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET");
-header("Access-Control-Allow-Headers: Content-Type");
-header("Content-Type: application/json; charset=UTF-8");
 
-$owner = isset($_GET['owner_phone'])
-    ? trim($_GET['owner_phone'])
-    : '';
+require_once "db.php";
 
-if ($owner === '') {
-
+if ($_SERVER["REQUEST_METHOD"] !== "GET") {
     echo json_encode([]);
+    exit;
+}
 
-    exit();
+$owner_phone = isset($_GET["owner_phone"])
+    ? trim($_GET["owner_phone"])
+    : "";
+
+if ($owner_phone === "") {
+    echo json_encode([]);
+    exit;
 }
 
 $sql = "
@@ -24,76 +25,61 @@ $sql = "
         owner_phone,
         vehicle_name,
         vehicle_type,
-        price_per_day,
         vehicle_image,
+        price_per_day,
+        price_6hr,
+        price_12hr,
         city,
         address,
         quantity,
-        deposit,
-        price_6hr,
-        price_12hr
+        deposit
     FROM vehicles
     WHERE owner_phone = ?
     ORDER BY id DESC
 ";
 
-$stmt = mysqli_prepare($conn, $sql);
+$stmt = $conn->prepare($sql);
 
 if (!$stmt) {
-
-    echo json_encode([]);
-
-    exit();
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database query preparation failed"
+    ]);
+    exit;
 }
 
-mysqli_stmt_bind_param(
-    $stmt,
+$stmt->bind_param(
     "s",
-    $owner
+    $owner_phone
 );
 
-mysqli_stmt_execute($stmt);
+$stmt->execute();
 
-$result = mysqli_stmt_get_result($stmt);
+$result = $stmt->get_result();
 
-$data = array();
+$vehicles = [];
 
-while ($row = mysqli_fetch_assoc($result)) {
+while ($row = $result->fetch_assoc()) {
 
-    if (
-        isset($row['vehicle_image']) &&
-        !empty($row['vehicle_image']) &&
-        strpos($row['vehicle_image'], "http") !== 0
-    ) {
-
-        $row['vehicle_image'] =
-            "https://rental-backend-production-8cbf.up.railway.app/" .
-            ltrim($row['vehicle_image'], "/");
-    }
-
-    $row['city'] =
-        $row['city'] ?? "";
-
-    $row['address'] =
-        $row['address'] ?? "";
-
-    $row['quantity'] =
-        $row['quantity'] ?? "1";
-
-    $row['deposit'] =
-        $row['deposit'] ?? "0";
-
-    $row['price_6hr'] =
-        $row['price_6hr'] ?? "0";
-
-    $row['price_12hr'] =
-        $row['price_12hr'] ?? "0";
-
-    $data[] = $row;
+    $vehicles[] = [
+        "id" => (int)$row["id"],
+        "owner_phone" => $row["owner_phone"],
+        "vehicle_name" => $row["vehicle_name"],
+        "vehicle_type" => $row["vehicle_type"],
+        "vehicle_image" => $row["vehicle_image"],
+        "price_per_day" => $row["price_per_day"],
+        "price_6hr" => $row["price_6hr"],
+        "price_12hr" => $row["price_12hr"],
+        "city" => $row["city"],
+        "address" => $row["address"],
+        "quantity" => $row["quantity"],
+        "deposit" => $row["deposit"]
+    ];
 }
 
-echo json_encode($data);
+$stmt->close();
+$conn->close();
 
-mysqli_stmt_close($stmt);
+echo json_encode($vehicles);
 
 ?>
