@@ -5,61 +5,34 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-
-/*
-|--------------------------------------------------------------------------
-| RECEIVE DATA
-|--------------------------------------------------------------------------
-*/
-
 $phone = trim($_POST['phone'] ?? '');
 $recoveryCode = trim($_POST['recovery_code'] ?? '');
 $newPassword = $_POST['password'] ?? '';
-
-
-/*
-|--------------------------------------------------------------------------
-| BASIC VALIDATION
-|--------------------------------------------------------------------------
-*/
 
 if (
     $phone === '' ||
     $recoveryCode === '' ||
     $newPassword === ''
 ) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Required fields are missing"
     ]);
-
     exit();
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| PASSWORD VALIDATION
-|--------------------------------------------------------------------------
-*/
-
 if (strlen($newPassword) < 8) {
-
     echo json_encode([
         "status" => "password_short",
         "message" => "Password must contain at least 8 characters"
     ]);
-
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| GET RECOVERY CODE
-|--------------------------------------------------------------------------
-*/
+ * Verify recovery code.
+ */
 
 $sql = "
     SELECT
@@ -71,18 +44,18 @@ $sql = "
     LIMIT 1
 ";
 
-$stmt = mysqli_prepare($conn, $sql);
+$stmt = mysqli_prepare(
+    $conn,
+    $sql
+);
 
 if (!$stmt) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Database error"
     ]);
-
     exit();
 }
-
 
 mysqli_stmt_bind_param(
     $stmt,
@@ -90,17 +63,19 @@ mysqli_stmt_bind_param(
     $phone
 );
 
-mysqli_stmt_execute($stmt);
+mysqli_stmt_execute(
+    $stmt
+);
 
 $result =
-    mysqli_stmt_get_result($stmt);
-
+    mysqli_stmt_get_result(
+        $stmt
+    );
 
 if (
     !$result ||
     mysqli_num_rows($result) === 0
 ) {
-
     mysqli_stmt_close($stmt);
 
     echo json_encode([
@@ -111,19 +86,15 @@ if (
     exit();
 }
 
-
 $row =
-    mysqli_fetch_assoc($result);
+    mysqli_fetch_assoc(
+        $result
+    );
 
+mysqli_stmt_close(
+    $stmt
+);
 
-mysqli_stmt_close($stmt);
-
-
-/*
-|--------------------------------------------------------------------------
-| CHECK CODE USED
-|--------------------------------------------------------------------------
-*/
 
 if ((int)$row['used'] === 1) {
 
@@ -135,12 +106,6 @@ if ((int)$row['used'] === 1) {
     exit();
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| VERIFY RECOVERY CODE
-|--------------------------------------------------------------------------
-*/
 
 if (!password_verify(
     $recoveryCode,
@@ -157,17 +122,14 @@ if (!password_verify(
 
 
 /*
-|--------------------------------------------------------------------------
-| HASH NEW PASSWORD
-|--------------------------------------------------------------------------
-*/
+ * Hash new password.
+ */
 
 $hashedPassword =
     password_hash(
         $newPassword,
         PASSWORD_DEFAULT
     );
-
 
 if ($hashedPassword === false) {
 
@@ -181,10 +143,8 @@ if ($hashedPassword === false) {
 
 
 /*
-|--------------------------------------------------------------------------
-| UPDATE USER PASSWORD
-|--------------------------------------------------------------------------
-*/
+ * Update password.
+ */
 
 $sqlUpdate = "
     UPDATE users
@@ -193,13 +153,11 @@ $sqlUpdate = "
     LIMIT 1
 ";
 
-
 $stmtUpdate =
     mysqli_prepare(
         $conn,
         $sqlUpdate
     );
-
 
 if (!$stmtUpdate) {
 
@@ -211,7 +169,6 @@ if (!$stmtUpdate) {
     exit();
 }
 
-
 mysqli_stmt_bind_param(
     $stmtUpdate,
     "ss",
@@ -219,10 +176,13 @@ mysqli_stmt_bind_param(
     $phone
 );
 
+if (!mysqli_stmt_execute(
+    $stmtUpdate
+)) {
 
-if (!mysqli_stmt_execute($stmtUpdate)) {
-
-    mysqli_stmt_close($stmtUpdate);
+    mysqli_stmt_close(
+        $stmtUpdate
+    );
 
     echo json_encode([
         "status" => "error",
@@ -232,29 +192,27 @@ if (!mysqli_stmt_execute($stmtUpdate)) {
     exit();
 }
 
-
-mysqli_stmt_close($stmtUpdate);
+mysqli_stmt_close(
+    $stmtUpdate
+);
 
 
 /*
-|--------------------------------------------------------------------------
-| MARK RECOVERY CODE AS USED
-|--------------------------------------------------------------------------
-*/
+ * Mark recovery code as used.
+ */
 
 $sqlUsed = "
     UPDATE recovery_codes
     SET used = 1
     WHERE id = ?
+    LIMIT 1
 ";
-
 
 $stmtUsed =
     mysqli_prepare(
         $conn,
         $sqlUsed
     );
-
 
 if ($stmtUsed) {
 
@@ -264,17 +222,67 @@ if ($stmtUsed) {
         $row['id']
     );
 
-    mysqli_stmt_execute($stmtUsed);
+    mysqli_stmt_execute(
+        $stmtUsed
+    );
 
-    mysqli_stmt_close($stmtUsed);
+    mysqli_stmt_close(
+        $stmtUsed
+    );
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| SUCCESS
-|--------------------------------------------------------------------------
-*/
+ * Create notification.
+ */
+
+$title =
+    "Password Updated";
+
+$message =
+    "Your RentX account password was successfully changed.";
+
+$type =
+    "system";
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification =
+    mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+if ($stmtNotification) {
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $phone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
+}
+
 
 echo json_encode([
     "status" => "success",
