@@ -3,37 +3,32 @@
 include "db.php";
 
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: text/plain; charset=UTF-8");
+header("Content-Type: application/json; charset=UTF-8");
 
+$bookingId = trim($_POST['booking_id'] ?? '');
+$newStatus = strtolower(trim($_POST['status'] ?? ''));
 
-/*
-|--------------------------------------------------------------------------
-| RECEIVE DATA
-|--------------------------------------------------------------------------
-*/
+if ($bookingId === '' || $newStatus === '') {
 
-$id = trim($_POST['booking_id'] ?? '');
-$status = trim($_POST['status'] ?? '');
+    echo json_encode([
+        "status" => "error",
+        "message" => "Booking ID and status are required"
+    ]);
 
-
-/*
-|--------------------------------------------------------------------------
-| VALIDATE INPUT
-|--------------------------------------------------------------------------
-*/
-
-if ($id === '' || $status === '') {
-
-    echo "Missing Data";
     exit();
 }
 
+if (!ctype_digit($bookingId)) {
 
-/*
-|--------------------------------------------------------------------------
-| ALLOWED STATUS VALUES
-|--------------------------------------------------------------------------
-*/
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid booking ID"
+    ]);
+
+    exit();
+}
+
+$bookingId = (int)$bookingId;
 
 $allowedStatuses = [
     "pending",
@@ -42,29 +37,38 @@ $allowedStatuses = [
     "completed"
 ];
 
-if (!in_array($status, $allowedStatuses, true)) {
+if (!in_array($newStatus, $allowedStatuses, true)) {
 
-    echo "Invalid Status";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid booking status"
+    ]);
+
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| GET CURRENT BOOKING
-|--------------------------------------------------------------------------
-*/
+ * Get booking information.
+ * We need user_phone and vehicle_name
+ * so the renter receives a notification.
+ */
 
 $sqlBooking = "
     SELECT
-        id,
-        vehicle_id,
-        quantity,
-        start_date,
-        end_date,
-        status
-    FROM bookings
-    WHERE id = ?
+        b.id,
+        b.user_phone,
+        b.vehicle_id,
+        b.quantity,
+        b.start_date,
+        b.end_date,
+        b.status,
+        v.vehicle_name,
+        v.quantity AS vehicle_stock
+    FROM bookings b
+    INNER JOIN vehicles v
+        ON b.vehicle_id = v.id
+    WHERE b.id = ?
     LIMIT 1
 ";
 
@@ -75,14 +79,18 @@ $stmtBooking = mysqli_prepare(
 
 if (!$stmtBooking) {
 
-    echo "Database Error";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
+
     exit();
 }
 
 mysqli_stmt_bind_param(
     $stmtBooking,
     "i",
-    $id
+    $bookingId
 );
 
 mysqli_stmt_execute(
@@ -103,7 +111,11 @@ if (
         $stmtBooking
     );
 
-    echo "Booking Not Found";
+    echo json_encode([
+        "status" => "not_found",
+        "message" => "Booking not found"
+    ]);
+
     exit();
 }
 
@@ -112,190 +124,84 @@ $booking =
         $resultBooking
     );
 
-$currentStatus =
-    $booking['status'];
-
 mysqli_stmt_close(
     $stmtBooking
 );
 
 
+$currentStatus =
+    strtolower(
+        trim(
+            $booking['status']
+        )
+    );
+
+
 /*
-|--------------------------------------------------------------------------
-| SAME STATUS
-|--------------------------------------------------------------------------
-*/
+ * Same status does not need another update.
+ */
 
-if ($currentStatus === $status) {
+if ($currentStatus === $newStatus) {
 
-    echo "success";
+    echo json_encode([
+        "status" => "success",
+        "message" => "Booking already has this status"
+    ]);
+
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| PREVENT INVALID TRANSITIONS
-|--------------------------------------------------------------------------
-*/
+ * Completed and cancelled bookings
+ * cannot be changed again.
+ */
 
-/*
-| Cancelled bookings cannot be reopened.
-*/
+if (
+    $currentStatus === "cancelled" ||
+    $currentStatus === "completed"
+) {
 
-if ($currentStatus === "cancelled") {
+    echo json_encode([
+        "status" => "error",
+        "message" => "This booking can no longer be changed"
+    ]);
 
-    echo "Booking Already Cancelled";
     exit();
 }
 
 
 /*
-| Completed bookings cannot be changed.
-*/
+ * Only pending bookings can be accepted.
+ */
 
-if ($currentStatus === "completed") {
+if (
+    $newStatus === "accepted" &&
+    $currentStatus !== "pending"
+) {
 
-    echo "Booking Already Completed";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Only pending bookings can be accepted"
+    ]);
+
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| ACCEPT BOOKING
-|--------------------------------------------------------------------------
-*/
+ * When accepting a booking,
+ * check available vehicle quantity.
+ */
 
-if ($status === "accepted") {
-
-    /*
-    | Only pending bookings can be accepted.
-    */
-
-    if ($currentStatus !== "pending") {
-
-        echo "Only Pending Booking Can Be Accepted";
-        exit();
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | BOOKING DATA
-    |--------------------------------------------------------------------------
-    */
-
-    $vehicleId =
-        (int)$booking['vehicle_id'];
-
-    $requestedQty =
-        (int)$booking['quantity'];
-
-    $bookingStart =
-        $booking['start_date'];
-
-    $bookingEnd =
-        $booking['end_date'];
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | GET VEHICLE STOCK
-    |--------------------------------------------------------------------------
-    */
-
-    $sqlVehicle = "
-        SELECT quantity
-        FROM vehicles
-        WHERE id = ?
-        LIMIT 1
-    ";
-
-    $stmtVehicle =
-        mysqli_prepare(
-            $conn,
-            $sqlVehicle
-        );
-
-    if (!$stmtVehicle) {
-
-        echo "Database Error";
-        exit();
-    }
-
-    mysqli_stmt_bind_param(
-        $stmtVehicle,
-        "i",
-        $vehicleId
-    );
-
-    mysqli_stmt_execute(
-        $stmtVehicle
-    );
-
-    $resultVehicle =
-        mysqli_stmt_get_result(
-            $stmtVehicle
-        );
-
-    if (
-        !$resultVehicle ||
-        mysqli_num_rows($resultVehicle) === 0
-    ) {
-
-        mysqli_stmt_close(
-            $stmtVehicle
-        );
-
-        echo "Vehicle Not Found";
-        exit();
-    }
-
-    $vehicle =
-        mysqli_fetch_assoc(
-            $resultVehicle
-        );
-
-    $stock =
-        (int)$vehicle['quantity'];
-
-    mysqli_stmt_close(
-        $stmtVehicle
-    );
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | VEHICLE AVAILABLE STOCK
-    |--------------------------------------------------------------------------
-    */
-
-    if ($stock <= 0) {
-
-        echo "Vehicle Not Available";
-        exit();
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | GET OVERLAPPING ACCEPTED BOOKINGS
-    |--------------------------------------------------------------------------
-    |
-    | Existing booking overlaps when:
-    |
-    | existing_start <= requested_end
-    | AND
-    | existing_end >= requested_start
-    |
-    | The current booking itself is excluded.
-    |
-    */
+if ($newStatus === "accepted") {
 
     $sqlReserved = "
         SELECT
-            IFNULL(SUM(quantity), 0) AS reserved
+            IFNULL(
+                SUM(quantity),
+                0
+            ) AS reserved
         FROM bookings
         WHERE vehicle_id = ?
         AND id != ?
@@ -312,17 +218,21 @@ if ($status === "accepted") {
 
     if (!$stmtReserved) {
 
-        echo "Database Error";
+        echo json_encode([
+            "status" => "error",
+            "message" => "Database error"
+        ]);
+
         exit();
     }
 
     mysqli_stmt_bind_param(
         $stmtReserved,
         "iiss",
-        $vehicleId,
-        $id,
-        $bookingEnd,
-        $bookingStart
+        $booking['vehicle_id'],
+        $bookingId,
+        $booking['end_date'],
+        $booking['start_date']
     );
 
     mysqli_stmt_execute(
@@ -334,61 +244,62 @@ if ($status === "accepted") {
             $stmtReserved
         );
 
-    $reservedData =
-        mysqli_fetch_assoc(
-            $resultReserved
-        );
+    $reserved = 0;
 
-    $reserved =
-        (int)(
-            $reservedData['reserved']
-            ?? 0
-        );
+    if ($resultReserved) {
+
+        $reservedRow =
+            mysqli_fetch_assoc(
+                $resultReserved
+            );
+
+        $reserved =
+            (int)(
+                $reservedRow['reserved']
+                ?? 0
+            );
+    }
 
     mysqli_stmt_close(
         $stmtReserved
     );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | CALCULATE AVAILABLE STOCK
-    |--------------------------------------------------------------------------
-    */
+    $vehicleStock =
+        (int)$booking['vehicle_stock'];
+
+    $requestedQuantity =
+        (int)$booking['quantity'];
 
     $available =
-        $stock - $reserved;
-
-    if ($available < 0) {
-
-        $available = 0;
-    }
+        $vehicleStock - $reserved;
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | FINAL STOCK CHECK
-    |--------------------------------------------------------------------------
-    */
+    if (
+        $requestedQuantity >
+        $available
+    ) {
 
-    if ($requestedQty > $available) {
+        echo json_encode([
+            "status" => "error",
+            "message" =>
+                "Not enough vehicles available for these dates"
+        ]);
 
-        echo "Not Enough Stock";
         exit();
     }
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| STATUS UPDATE
-|--------------------------------------------------------------------------
-*/
+ * Update booking status.
+ */
 
 $sqlUpdate = "
     UPDATE bookings
     SET status = ?
     WHERE id = ?
+    LIMIT 1
 ";
 
 $stmtUpdate =
@@ -399,40 +310,179 @@ $stmtUpdate =
 
 if (!$stmtUpdate) {
 
-    echo "Database Error";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
+
     exit();
 }
 
 mysqli_stmt_bind_param(
     $stmtUpdate,
     "si",
-    $status,
-    $id
+    $newStatus,
+    $bookingId
 );
 
-
-/*
-|--------------------------------------------------------------------------
-| EXECUTE UPDATE
-|--------------------------------------------------------------------------
-*/
-
-if (
+$updated =
     mysqli_stmt_execute(
         $stmtUpdate
-    )
-) {
-
-    echo "success";
-
-} else {
-
-    echo "Booking Status Update Failed";
-}
-
+    );
 
 mysqli_stmt_close(
     $stmtUpdate
 );
+
+
+if (!$updated) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Unable to update booking"
+    ]);
+
+    exit();
+}
+
+
+/*
+ * Create notification for the renter.
+ */
+
+$userPhone =
+    $booking['user_phone'];
+
+$vehicleName =
+    $booking['vehicle_name'];
+
+
+/*
+ * Notification content
+ */
+
+$title = "";
+$message = "";
+$type = "booking";
+
+
+switch ($newStatus) {
+
+    case "accepted":
+
+        $title =
+            "Booking Accepted";
+
+        $message =
+            "Your booking for " .
+            $vehicleName .
+            " has been accepted by the owner.";
+
+        $type = "accepted";
+
+        break;
+
+
+    case "cancelled":
+
+        $title =
+            "Booking Cancelled";
+
+        $message =
+            "Your booking for " .
+            $vehicleName .
+            " has been cancelled.";
+
+        $type = "cancelled";
+
+        break;
+
+
+    case "completed":
+
+        $title =
+            "Booking Completed";
+
+        $message =
+            "Your booking for " .
+            $vehicleName .
+            " has been completed.";
+
+        $type = "booking";
+
+        break;
+
+
+    case "pending":
+
+        $title =
+            "Booking Updated";
+
+        $message =
+            "Your booking for " .
+            $vehicleName .
+            " is pending confirmation.";
+
+        $type = "booking";
+
+        break;
+}
+
+
+/*
+ * Insert notification.
+ *
+ * Notification failure should not
+ * undo the successful booking update.
+ */
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification =
+    mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+if ($stmtNotification) {
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $userPhone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
+}
+
+
+/*
+ * Final response.
+ */
+
+echo json_encode([
+    "status" => "success",
+    "message" =>
+        "Booking status updated successfully"
+]);
 
 ?>
