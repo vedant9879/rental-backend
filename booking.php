@@ -3,125 +3,126 @@
 include "db.php";
 
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: text/plain; charset=UTF-8");
+header("Content-Type: application/json; charset=UTF-8");
 
-/*
-|--------------------------------------------------------------------------
-| RECEIVE BOOKING DATA
-|--------------------------------------------------------------------------
-*/
-
-$user    = trim($_POST['user_phone'] ?? '');
-$vehicle = trim($_POST['vehicle_id'] ?? '');
-$start   = trim($_POST['start_date'] ?? '');
-$end     = trim($_POST['end_date'] ?? '');
-$total   = trim($_POST['total_price'] ?? '');
-
-$qty     = (int)($_POST['quantity'] ?? 1);
-$plan    = trim($_POST['booking_plan'] ?? '1 Day');
-$payment = trim($_POST['payment_mode'] ?? 'Cash on Delivery');
-
-$status = "pending";
-
-
-/*
-|--------------------------------------------------------------------------
-| BASIC VALIDATION
-|--------------------------------------------------------------------------
-*/
+$userPhone = trim($_POST['user_phone'] ?? '');
+$vehicleId = trim($_POST['vehicle_id'] ?? '');
+$startDate = trim($_POST['start_date'] ?? '');
+$endDate = trim($_POST['end_date'] ?? '');
+$totalPrice = trim($_POST['total_price'] ?? '');
+$quantity = trim($_POST['quantity'] ?? '1');
+$bookingPlan = trim($_POST['booking_plan'] ?? 'Daily Booking');
+$paymentMode = trim($_POST['payment_mode'] ?? 'Cash on Delivery');
 
 if (
-    $user === '' ||
-    $vehicle === '' ||
-    $start === '' ||
-    $end === '' ||
-    $total === ''
+    $userPhone === '' ||
+    $vehicleId === '' ||
+    $startDate === '' ||
+    $endDate === '' ||
+    $totalPrice === ''
 ) {
-    echo "Missing Data";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Required booking fields are missing"
+    ]);
     exit();
 }
 
-if ($qty <= 0) {
-    echo "Invalid Quantity";
+if (
+    !ctype_digit($vehicleId) ||
+    !ctype_digit($quantity)
+) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid vehicle or quantity"
+    ]);
+    exit();
+}
+
+$vehicleId = (int)$vehicleId;
+$quantity = (int)$quantity;
+$totalPrice = (float)$totalPrice;
+
+if ($quantity <= 0) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Quantity must be greater than zero"
+    ]);
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| CHECK VEHICLE
-|--------------------------------------------------------------------------
-*/
+ * Get vehicle information.
+ */
 
 $sqlVehicle = "
-    SELECT owner_phone, quantity
+    SELECT
+        id,
+        vehicle_name,
+        owner_phone,
+        quantity AS stock
     FROM vehicles
     WHERE id = ?
     LIMIT 1
 ";
 
-$stmtVehicle = mysqli_prepare($conn, $sqlVehicle);
+$stmtVehicle = mysqli_prepare(
+    $conn,
+    $sqlVehicle
+);
 
 if (!$stmtVehicle) {
-    echo "Database Error";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
     exit();
 }
 
 mysqli_stmt_bind_param(
     $stmtVehicle,
     "i",
-    $vehicle
+    $vehicleId
 );
 
-mysqli_stmt_execute($stmtVehicle);
+mysqli_stmt_execute(
+    $stmtVehicle
+);
 
-$resultVehicle = mysqli_stmt_get_result($stmtVehicle);
+$resultVehicle = mysqli_stmt_get_result(
+    $stmtVehicle
+);
 
-if (!$resultVehicle || mysqli_num_rows($resultVehicle) === 0) {
-
+if (
+    !$resultVehicle ||
+    mysqli_num_rows($resultVehicle) === 0
+) {
     mysqli_stmt_close($stmtVehicle);
 
-    echo "Vehicle Not Found";
+    echo json_encode([
+        "status" => "error",
+        "message" => "Vehicle not found"
+    ]);
     exit();
 }
 
-$vehicleData = mysqli_fetch_assoc($resultVehicle);
+$vehicle = mysqli_fetch_assoc(
+    $resultVehicle
+);
 
-$owner = $vehicleData['owner_phone'];
-$stock = (int)$vehicleData['quantity'];
-
-mysqli_stmt_close($stmtVehicle);
-
-
-/*
-|--------------------------------------------------------------------------
-| VALIDATE STOCK
-|--------------------------------------------------------------------------
-*/
-
-if ($stock <= 0) {
-    echo "Vehicle Not Available";
-    exit();
-}
+mysqli_stmt_close(
+    $stmtVehicle
+);
 
 
 /*
-|--------------------------------------------------------------------------
-| CHECK EXISTING BOOKINGS
-|--------------------------------------------------------------------------
-|
-| A booking overlaps when:
-|
-| existing_start <= requested_end
-| AND
-| existing_end >= requested_start
-|
-| Only pending and accepted bookings block stock.
-|--------------------------------------------------------------------------
-*/
+ * Check already reserved quantity.
+ */
 
-$sqlBooked = "
-    SELECT IFNULL(SUM(quantity), 0) AS used
+$sqlOverlap = "
+    SELECT
+        IFNULL(SUM(quantity), 0) AS used
     FROM bookings
     WHERE vehicle_id = ?
     AND status IN ('pending', 'accepted')
@@ -129,123 +130,202 @@ $sqlBooked = "
     AND end_date >= ?
 ";
 
-$stmtBooked = mysqli_prepare($conn, $sqlBooked);
+$stmtOverlap = mysqli_prepare(
+    $conn,
+    $sqlOverlap
+);
 
-if (!$stmtBooked) {
-    echo "Database Error";
+if (!$stmtOverlap) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
     exit();
 }
 
 mysqli_stmt_bind_param(
-    $stmtBooked,
+    $stmtOverlap,
     "iss",
-    $vehicle,
-    $end,
-    $start
+    $vehicleId,
+    $endDate,
+    $startDate
 );
 
-mysqli_stmt_execute($stmtBooked);
+mysqli_stmt_execute(
+    $stmtOverlap
+);
 
-$resultBooked = mysqli_stmt_get_result($stmtBooked);
+$resultOverlap = mysqli_stmt_get_result(
+    $stmtOverlap
+);
 
-$bookedData = mysqli_fetch_assoc($resultBooked);
+$used = 0;
 
-$used = (int)($bookedData['used'] ?? 0);
+if ($resultOverlap) {
 
-mysqli_stmt_close($stmtBooked);
+    $row = mysqli_fetch_assoc(
+        $resultOverlap
+    );
+
+    $used = (int)(
+        $row['used'] ?? 0
+    );
+}
+
+mysqli_stmt_close(
+    $stmtOverlap
+);
 
 
-/*
-|--------------------------------------------------------------------------
-| CALCULATE AVAILABLE STOCK
-|--------------------------------------------------------------------------
-*/
+$stock = (int)$vehicle['stock'];
 
 $available = $stock - $used;
 
-if ($available < 0) {
-    $available = 0;
-}
 
+if ($quantity > $available) {
 
-/*
-|--------------------------------------------------------------------------
-| FINAL QUANTITY CHECK
-|--------------------------------------------------------------------------
-*/
-
-if ($qty > $available) {
-
-    echo "Only " . $available . " Available";
+    echo json_encode([
+        "status" => "error",
+        "message" =>
+            "Only " .
+            max(0, $available) .
+            " vehicle(s) available for these dates"
+    ]);
 
     exit();
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| INSERT BOOKING
-|--------------------------------------------------------------------------
-*/
+ * Insert booking.
+ */
 
-$sqlInsert = "
+$sqlBooking = "
     INSERT INTO bookings
     (
         user_phone,
-        owner_phone,
         vehicle_id,
         start_date,
         end_date,
         total_price,
-        payment_mode,
         quantity,
         booking_plan,
+        payment_mode,
         status
     )
-    VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
 ";
 
-$stmtInsert = mysqli_prepare($conn, $sqlInsert);
+$stmtBooking = mysqli_prepare(
+    $conn,
+    $sqlBooking
+);
 
-if (!$stmtInsert) {
-    echo "Database Error";
+if (!$stmtBooking) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
     exit();
+}
+
+mysqli_stmt_bind_param(
+    $stmtBooking,
+    "sissdiss",
+    $userPhone,
+    $vehicleId,
+    $startDate,
+    $endDate,
+    $totalPrice,
+    $quantity,
+    $bookingPlan,
+    $paymentMode
+);
+
+if (!mysqli_stmt_execute($stmtBooking)) {
+
+    mysqli_stmt_close($stmtBooking);
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Booking failed"
+    ]);
+
+    exit();
+}
+
+$bookingId = mysqli_insert_id($conn);
+
+mysqli_stmt_close(
+    $stmtBooking
+);
+
+
+/*
+ * Create notification for vehicle owner.
+ */
+
+$title =
+    "New Booking Request";
+
+$message =
+    "A customer has requested to book your " .
+    $vehicle['vehicle_name'] .
+    ".";
+
+$type =
+    "booking";
+
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification = mysqli_prepare(
+    $conn,
+    $sqlNotification
+);
+
+if ($stmtNotification) {
+
+    $ownerPhone =
+        $vehicle['owner_phone'];
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $ownerPhone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
 }
 
 
 /*
-|--------------------------------------------------------------------------
-| INSERT DATA
-|--------------------------------------------------------------------------
-*/
+ * Final response.
+ */
 
-mysqli_stmt_bind_param(
-    $stmtInsert,
-    "ssissssiss",
-    $user,
-    $owner,
-    $vehicle,
-    $start,
-    $end,
-    $total,
-    $payment,
-    $qty,
-    $plan,
-    $status
-);
-
-
-if (mysqli_stmt_execute($stmtInsert)) {
-
-    echo "success";
-
-} else {
-
-    echo "Booking Failed";
-}
-
-
-mysqli_stmt_close($stmtInsert);
+echo json_encode([
+    "status" => "success",
+    "message" => "Booking request submitted successfully",
+    "booking_id" => $bookingId
+]);
 
 ?>
