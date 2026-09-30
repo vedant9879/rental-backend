@@ -130,7 +130,8 @@ if (
     mysqli_stmt_close($stmtCheck);
 
     echo json_encode([
-        "status" => "exists"
+        "status" => "exists",
+        "message" => "Phone or email already registered"
     ]);
 
     exit();
@@ -217,22 +218,150 @@ mysqli_stmt_bind_param(
 |--------------------------------------------------------------------------
 */
 
-if (mysqli_stmt_execute($stmtInsert)) {
+if (!mysqli_stmt_execute($stmtInsert)) {
 
-    echo json_encode([
-        "status" => "success",
-        "message" => "Registration Successful"
-    ]);
-
-} else {
+    mysqli_stmt_close($stmtInsert);
 
     echo json_encode([
         "status" => "error",
         "message" => "Registration Failed"
     ]);
+
+    exit();
 }
 
 
 mysqli_stmt_close($stmtInsert);
+
+
+/*
+|--------------------------------------------------------------------------
+| GENERATE RECOVERY CODE
+|--------------------------------------------------------------------------
+|
+| Example:
+| RX-7K4P-92LM
+|
+| The user sees the code once.
+| Only its hash is stored in MySQL.
+|
+|--------------------------------------------------------------------------
+*/
+
+$characters =
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+$recoveryCode = "RX-";
+
+for ($i = 0; $i < 8; $i++) {
+
+    $recoveryCode .=
+        $characters[random_int(
+            0,
+            strlen($characters) - 1
+        )];
+
+    if ($i === 3) {
+        $recoveryCode .= "-";
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| HASH RECOVERY CODE
+|--------------------------------------------------------------------------
+*/
+
+$recoveryCodeHash = password_hash(
+    $recoveryCode,
+    PASSWORD_DEFAULT
+);
+
+if ($recoveryCodeHash === false) {
+
+    echo json_encode([
+        "status" => "success",
+        "message" => "Registration Successful",
+        "recovery_code" => $recoveryCode
+    ]);
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| STORE RECOVERY CODE
+|--------------------------------------------------------------------------
+*/
+
+$sqlRecovery = "
+    INSERT INTO recovery_codes
+    (
+        user_phone,
+        recovery_code_hash,
+        used
+    )
+    VALUES
+    (?, ?, 0)
+";
+
+
+$stmtRecovery =
+    mysqli_prepare(
+        $conn,
+        $sqlRecovery
+    );
+
+
+if (!$stmtRecovery) {
+
+    echo json_encode([
+        "status" => "success",
+        "message" => "Registration Successful",
+        "recovery_code" => $recoveryCode
+    ]);
+
+    exit();
+}
+
+
+mysqli_stmt_bind_param(
+    $stmtRecovery,
+    "ss",
+    $phone,
+    $recoveryCodeHash
+);
+
+
+if (!mysqli_stmt_execute($stmtRecovery)) {
+
+    mysqli_stmt_close($stmtRecovery);
+
+    echo json_encode([
+        "status" => "success",
+        "message" => "Registration Successful",
+        "recovery_code" => $recoveryCode
+    ]);
+
+    exit();
+}
+
+
+mysqli_stmt_close($stmtRecovery);
+
+
+/*
+|--------------------------------------------------------------------------
+| FINAL RESPONSE
+|--------------------------------------------------------------------------
+*/
+
+echo json_encode([
+    "status" => "success",
+    "message" => "Registration Successful",
+    "recovery_code" => $recoveryCode
+]);
 
 ?>
