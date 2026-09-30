@@ -3,101 +3,142 @@
 include "db.php";
 
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: text/plain; charset=UTF-8");
+header("Content-Type: application/json; charset=UTF-8");
 
+$vehicleId = trim($_POST['vehicle_id'] ?? '');
 
-/*
-|--------------------------------------------------------------------------
-| RECEIVE VEHICLE DATA
-|--------------------------------------------------------------------------
-*/
-
-$id       = trim($_POST['vehicle_id'] ?? '');
-$name     = trim($_POST['vehicle_name'] ?? '');
-$price    = trim($_POST['price_per_day'] ?? '');
-$price6   = trim($_POST['price_6hr'] ?? '');
-$price12  = trim($_POST['price_12hr'] ?? '');
-$qty      = trim($_POST['quantity'] ?? '');
-$deposit  = trim($_POST['deposit'] ?? '');
-$city     = trim($_POST['city'] ?? '');
-$address  = trim($_POST['address'] ?? '');
-
-
-/*
-|--------------------------------------------------------------------------
-| CHECK VEHICLE ID
-|--------------------------------------------------------------------------
-*/
-
-if ($id === '') {
-
-    echo "Vehicle ID Missing";
-    exit();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| CHECK REQUIRED FIELDS
-|--------------------------------------------------------------------------
-*/
+$name = trim($_POST['vehicle_name'] ?? '');
+$price = trim($_POST['price_per_day'] ?? '');
+$price6 = trim($_POST['price_6hr'] ?? '0');
+$price12 = trim($_POST['price_12hr'] ?? '0');
+$quantity = trim($_POST['quantity'] ?? '');
+$deposit = trim($_POST['deposit'] ?? '');
+$city = trim($_POST['city'] ?? '');
+$address = trim($_POST['address'] ?? '');
 
 if (
+    $vehicleId === '' ||
     $name === '' ||
     $price === '' ||
-    $qty === ''
+    $quantity === '' ||
+    $city === ''
+) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Required fields are missing"
+    ]);
+
+    exit();
+}
+
+if (!ctype_digit($vehicleId)) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid vehicle ID"
+    ]);
+
+    exit();
+}
+
+if (
+    !is_numeric($price) ||
+    !is_numeric($price6) ||
+    !is_numeric($price12) ||
+    !is_numeric($quantity) ||
+    !is_numeric($deposit)
+) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid vehicle values"
+    ]);
+
+    exit();
+}
+
+$vehicleId = (int)$vehicleId;
+$price = (float)$price;
+$price6 = (float)$price6;
+$price12 = (float)$price12;
+$quantity = (int)$quantity;
+$deposit = (float)$deposit;
+
+
+/*
+ * Get owner and old vehicle name.
+ */
+
+$sqlVehicle = "
+    SELECT
+        vehicle_name,
+        owner_phone
+    FROM vehicles
+    WHERE id = ?
+    LIMIT 1
+";
+
+$stmtVehicle = mysqli_prepare(
+    $conn,
+    $sqlVehicle
+);
+
+if (!$stmtVehicle) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
+
+    exit();
+}
+
+mysqli_stmt_bind_param(
+    $stmtVehicle,
+    "i",
+    $vehicleId
+);
+
+mysqli_stmt_execute(
+    $stmtVehicle
+);
+
+$resultVehicle =
+    mysqli_stmt_get_result(
+        $stmtVehicle
+    );
+
+if (
+    !$resultVehicle ||
+    mysqli_num_rows($resultVehicle) === 0
 ) {
 
-    echo "Required Fields Missing";
+    mysqli_stmt_close($stmtVehicle);
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Vehicle not found"
+    ]);
+
     exit();
 }
+
+$vehicle =
+    mysqli_fetch_assoc(
+        $resultVehicle
+    );
+
+mysqli_stmt_close(
+    $stmtVehicle
+);
 
 
 /*
-|--------------------------------------------------------------------------
-| VALIDATE NUMERIC VALUES
-|--------------------------------------------------------------------------
-*/
+ * Update vehicle.
+ */
 
-if (!is_numeric($price)) {
-
-    echo "Invalid Daily Price";
-    exit();
-}
-
-if ($price6 !== '' && !is_numeric($price6)) {
-
-    echo "Invalid 6 Hour Price";
-    exit();
-}
-
-if ($price12 !== '' && !is_numeric($price12)) {
-
-    echo "Invalid 12 Hour Price";
-    exit();
-}
-
-if (!is_numeric($qty) || (int)$qty < 1) {
-
-    echo "Invalid Quantity";
-    exit();
-}
-
-if ($deposit !== '' && !is_numeric($deposit)) {
-
-    echo "Invalid Deposit";
-    exit();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| UPDATE VEHICLE
-|--------------------------------------------------------------------------
-*/
-
-$sql = "
-    UPDATE vehicles SET
+$sqlUpdate = "
+    UPDATE vehicles
+    SET
         vehicle_name = ?,
         price_per_day = ?,
         price_6hr = ?,
@@ -107,55 +148,26 @@ $sql = "
         city = ?,
         address = ?
     WHERE id = ?
+    LIMIT 1
 ";
 
+$stmtUpdate =
+    mysqli_prepare(
+        $conn,
+        $sqlUpdate
+    );
 
-$stmt = mysqli_prepare($conn, $sql);
+if (!$stmtUpdate) {
 
-if (!$stmt) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Database error"
+    ]);
 
-    echo "Database Error";
     exit();
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| BIND PARAMETERS
-|--------------------------------------------------------------------------
-*/
-
 mysqli_stmt_bind_param(
-    $stmt,
-    "ssssssssi",
-    $name,
-    $price,
-    $price6,
-    $price12,
-    $qty,
-    $deposit,
-    $city,
-    $address,
-    $id
+    $stmtUpdate,
+    "sdddids si"
 );
-
-
-/*
-|--------------------------------------------------------------------------
-| EXECUTE UPDATE
-|--------------------------------------------------------------------------
-*/
-
-if (mysqli_stmt_execute($stmt)) {
-
-    echo "Updated Successfully";
-
-} else {
-
-    echo "Update Failed";
-}
-
-
-mysqli_stmt_close($stmt);
-
-?>
