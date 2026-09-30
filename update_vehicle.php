@@ -27,17 +27,14 @@ if (
         "status" => "error",
         "message" => "Required fields are missing"
     ]);
-
     exit();
 }
 
 if (!ctype_digit($vehicleId)) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Invalid vehicle ID"
     ]);
-
     exit();
 }
 
@@ -52,7 +49,6 @@ if (
         "status" => "error",
         "message" => "Invalid vehicle values"
     ]);
-
     exit();
 }
 
@@ -65,7 +61,7 @@ $deposit = (float)$deposit;
 
 
 /*
- * Get owner and old vehicle name.
+ * Get owner information.
  */
 
 $sqlVehicle = "
@@ -83,12 +79,10 @@ $stmtVehicle = mysqli_prepare(
 );
 
 if (!$stmtVehicle) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Database error"
     ]);
-
     exit();
 }
 
@@ -111,7 +105,6 @@ if (
     !$resultVehicle ||
     mysqli_num_rows($resultVehicle) === 0
 ) {
-
     mysqli_stmt_close($stmtVehicle);
 
     echo json_encode([
@@ -158,16 +151,103 @@ $stmtUpdate =
     );
 
 if (!$stmtUpdate) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Database error"
     ]);
-
     exit();
 }
 
 mysqli_stmt_bind_param(
     $stmtUpdate,
-    "sdddids si"
+    "sdddidssi",
+    $name,
+    $price,
+    $price6,
+    $price12,
+    $quantity,
+    $deposit,
+    $city,
+    $address,
+    $vehicleId
 );
+
+if (!mysqli_stmt_execute($stmtUpdate)) {
+
+    mysqli_stmt_close($stmtUpdate);
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Unable to update vehicle"
+    ]);
+
+    exit();
+}
+
+mysqli_stmt_close(
+    $stmtUpdate
+);
+
+
+/*
+ * Create notification.
+ */
+
+$title =
+    "Vehicle Updated";
+
+$message =
+    $name .
+    " has been updated successfully in your RentX listings.";
+
+$type =
+    "vehicle";
+
+$sqlNotification = "
+    INSERT INTO notifications
+    (
+        user_phone,
+        title,
+        message,
+        type,
+        is_read
+    )
+    VALUES (?, ?, ?, ?, 0)
+";
+
+$stmtNotification =
+    mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+if ($stmtNotification) {
+
+    $ownerPhone =
+        $vehicle['owner_phone'];
+
+    mysqli_stmt_bind_param(
+        $stmtNotification,
+        "ssss",
+        $ownerPhone,
+        $title,
+        $message,
+        $type
+    );
+
+    mysqli_stmt_execute(
+        $stmtNotification
+    );
+
+    mysqli_stmt_close(
+        $stmtNotification
+    );
+}
+
+
+echo json_encode([
+    "status" => "success",
+    "message" => "Updated Successfully"
+]);
+
+?>
