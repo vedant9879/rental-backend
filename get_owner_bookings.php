@@ -27,10 +27,14 @@ if ($owner === '') {
 | GET OWNER BOOKINGS
 |--------------------------------------------------------------------------
 |
-| Returns bookings for vehicles belonging to this owner.
+| The owner is identified from the VEHICLES table.
 |
-| Existing Android fields are preserved.
-| Additional vehicle information is also returned.
+| bookings.vehicle_id
+|        ↓
+| vehicles.id
+|        ↓
+| vehicles.owner_phone
+|
 |--------------------------------------------------------------------------
 */
 
@@ -38,10 +42,12 @@ $sql = "
     SELECT
         b.id,
         b.vehicle_id,
+
         v.vehicle_name,
         v.vehicle_type,
         v.vehicle_image,
         v.city,
+        v.owner_phone,
 
         b.user_phone,
         b.owner_phone,
@@ -53,14 +59,21 @@ $sql = "
         b.status,
         b.quantity,
         b.booking_plan,
-        b.payment_mode
+        b.payment_mode,
+
+        b.pickup_time,
+        b.return_time,
+        b.pickup_condition,
+        b.return_condition,
+        b.pickup_confirmed,
+        b.return_confirmed
 
     FROM bookings b
 
     INNER JOIN vehicles v
         ON b.vehicle_id = v.id
 
-    WHERE b.owner_phone = ?
+    WHERE v.owner_phone = ?
 
     ORDER BY b.id DESC
 ";
@@ -150,6 +163,31 @@ while ($row = mysqli_fetch_assoc($result)) {
 
     $row['status'] =
         $row['status'] ?? 'pending';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PICKUP / RETURN DEFAULTS
+    |--------------------------------------------------------------------------
+    */
+
+    $row['pickup_time'] =
+        $row['pickup_time'] ?? null;
+
+    $row['return_time'] =
+        $row['return_time'] ?? null;
+
+    $row['pickup_condition'] =
+        $row['pickup_condition'] ?? '';
+
+    $row['return_condition'] =
+        $row['return_condition'] ?? '';
+
+    $row['pickup_confirmed'] =
+        $row['pickup_confirmed'] ?? '0';
+
+    $row['return_confirmed'] =
+        $row['return_confirmed'] ?? '0';
 
 
     $data[] = $row;
