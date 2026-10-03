@@ -4,20 +4,33 @@ session_start();
 
 require_once "../db.php";
 
+/*
+|--------------------------------------------------------------------------
+| Admin Authentication
+|--------------------------------------------------------------------------
+*/
+
 if (!isset($_SESSION["admin_id"])) {
     header("Location: login.php");
     exit;
 }
 
-$request_id = isset($_GET["id"]) ? (int)$_GET["id"] : 0;
+
+/*
+|--------------------------------------------------------------------------
+| Get Request ID
+|--------------------------------------------------------------------------
+*/
+
+$request_id = isset($_GET["id"])
+    ? (int)$_GET["id"]
+    : 0;
 
 if ($request_id <= 0) {
     header("Location: support.php");
     exit;
 }
 
-$message = "";
-$error = "";
 
 /*
 |--------------------------------------------------------------------------
@@ -27,8 +40,20 @@ $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $admin_reply = trim($_POST["admin_reply"] ?? "");
-    $status = trim($_POST["status"] ?? "open");
+    $admin_reply = trim(
+        $_POST["admin_reply"] ?? ""
+    );
+
+    $status = trim(
+        $_POST["status"] ?? "open"
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Allowed Statuses
+    |--------------------------------------------------------------------------
+    */
 
     $allowed_statuses = [
         "open",
@@ -36,9 +61,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         "resolved"
     ];
 
-    if (!in_array($status, $allowed_statuses, true)) {
+
+    if (!in_array(
+        $status,
+        $allowed_statuses,
+        true
+    )) {
+
         $status = "open";
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Update Database
+    |--------------------------------------------------------------------------
+    */
 
     $sql = "UPDATE support_requests
             SET admin_reply = ?,
@@ -47,31 +85,52 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $stmt = $conn->prepare($sql);
 
-    if ($stmt) {
 
-        $stmt->bind_param(
-            "ssi",
-            $admin_reply,
-            $status,
-            $request_id
-        );
+    if (!$stmt) {
 
-        if ($stmt->execute()) {
-            $message = "Support request updated successfully.";
-        } else {
-            $error = "Unable to update support request.";
-        }
+        die("Database error.");
+
+    }
+
+
+    $stmt->bind_param(
+        "ssi",
+        $admin_reply,
+        $status,
+        $request_id
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Save Successful → Return to Support List
+    |--------------------------------------------------------------------------
+    */
+
+    if ($stmt->execute()) {
 
         $stmt->close();
 
-    } else {
-        $error = "Database error.";
+        $conn->close();
+
+        header(
+            "Location: support.php?updated=1"
+        );
+
+        exit;
+
     }
+
+
+    $stmt->close();
+
+    die("Unable to update support request.");
 }
+
 
 /*
 |--------------------------------------------------------------------------
-| Get Request
+| Get Support Request
 |--------------------------------------------------------------------------
 */
 
@@ -90,24 +149,43 @@ $sql = "SELECT
         WHERE id = ?
         LIMIT 1";
 
+
 $stmt = $conn->prepare($sql);
+
 
 if (!$stmt) {
     die("Database error.");
 }
 
-$stmt->bind_param("i", $request_id);
+
+$stmt->bind_param(
+    "i",
+    $request_id
+);
+
 $stmt->execute();
 
+
 $result = $stmt->get_result();
+
+
+/*
+|--------------------------------------------------------------------------
+| Request Not Found
+|--------------------------------------------------------------------------
+*/
 
 if ($result->num_rows === 0) {
 
     $stmt->close();
 
+    $conn->close();
+
     header("Location: support.php");
+
     exit;
 }
+
 
 $request = $result->fetch_assoc();
 
@@ -116,234 +194,458 @@ $stmt->close();
 ?>
 
 <!DOCTYPE html>
+
 <html lang="en">
 
 <head>
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
 <title>
-RentX - Support Request
+    RentX - Support Request
 </title>
 
+
 <style>
+
+/* =========================================================
+   RESET
+========================================================= */
 
 * {
     box-sizing: border-box;
 }
 
+
+/* =========================================================
+   BODY
+========================================================= */
+
 body {
+
     margin: 0;
+
     font-family: Arial, sans-serif;
+
     background: #f5f6fa;
+
     color: #111827;
 }
 
+
+/* =========================================================
+   HEADER
+========================================================= */
+
 .header {
+
     background: #111827;
+
     color: white;
+
     padding: 20px 35px;
 
     display: flex;
+
     justify-content: space-between;
+
     align-items: center;
 }
 
+
 .header h1 {
+
     margin: 0;
+
     font-size: 24px;
 }
 
+
 .header p {
+
     margin: 6px 0 0;
+
     color: #cbd5e1;
 }
 
+
+/* =========================================================
+   HEADER BUTTONS
+========================================================= */
+
 .header-buttons {
+
     display: flex;
+
     gap: 10px;
 }
 
+
 .header-buttons a {
+
     color: white;
+
     text-decoration: none;
-    padding: 10px 16px;
+
+    padding: 11px 17px;
+
     border-radius: 8px;
+
     font-weight: bold;
 }
 
+
 .dashboard-btn {
+
     background: #4f46e5;
 }
 
+
+.dashboard-btn:hover {
+
+    background: #4338ca;
+}
+
+
 .logout-btn {
+
     background: #dc2626;
 }
 
+
+.logout-btn:hover {
+
+    background: #b91c1c;
+}
+
+
+/* =========================================================
+   MAIN CONTAINER
+========================================================= */
+
 .container {
+
     max-width: 950px;
+
     margin: 30px auto;
+
     padding: 0 20px;
 }
 
+
+/* =========================================================
+   BACK BUTTON
+========================================================= */
+
 .back {
-    display: inline-block;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
+
     margin-bottom: 20px;
-    color: #4f46e5;
+
+    background: #4f46e5;
+
+    color: white;
+
     text-decoration: none;
+
+    padding: 12px 18px;
+
+    border-radius: 9px;
+
     font-weight: bold;
+
+    font-size: 15px;
+
+    cursor: pointer;
+
+    transition: 0.2s;
 }
 
+
+.back:hover {
+
+    background: #4338ca;
+
+}
+
+
+/* =========================================================
+   CARD
+========================================================= */
+
 .card {
+
     background: white;
+
     border-radius: 16px;
+
     padding: 28px;
 
     box-shadow:
         0 5px 20px rgba(0,0,0,0.06);
 }
 
+
+/* =========================================================
+   TITLE
+========================================================= */
+
 .title {
+
     border-bottom: 1px solid #e5e7eb;
+
     padding-bottom: 20px;
+
     margin-bottom: 22px;
 }
 
+
 .title h2 {
+
     margin: 0 0 8px;
+
     font-size: 24px;
 }
 
+
 .request-id {
+
     color: #6b7280;
+
     font-size: 14px;
 }
 
+
+/* =========================================================
+   DETAILS
+========================================================= */
+
 .details {
+
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+
+    grid-template-columns:
+        repeat(3, 1fr);
+
     gap: 15px;
+
     margin-bottom: 25px;
 }
 
+
 .detail {
+
     background: #f9fafb;
+
     padding: 15px;
+
     border-radius: 10px;
 }
 
+
 .label {
+
     color: #6b7280;
+
     font-size: 12px;
+
     margin-bottom: 6px;
 }
 
+
 .value {
+
     font-weight: bold;
+
     font-size: 14px;
+
+    word-break: break-word;
 }
 
+
+/* =========================================================
+   SECTION
+========================================================= */
+
 .section {
+
     margin-top: 22px;
 }
 
+
 .section h3 {
+
     font-size: 16px;
+
     margin-bottom: 10px;
 }
 
+
+/* =========================================================
+   DESCRIPTION
+========================================================= */
+
 .description {
+
     background: #f9fafb;
+
     padding: 17px;
+
     border-radius: 10px;
+
     line-height: 1.6;
+
     color: #374151;
+
+    word-break: break-word;
 }
 
-.alert-success {
-    background: #ecfdf5;
-    color: #15803d;
-    padding: 13px;
-    border-radius: 9px;
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.form-group {
+
     margin-bottom: 20px;
 }
 
-.alert-error {
-    background: #fef2f2;
-    color: #dc2626;
-    padding: 13px;
-    border-radius: 9px;
-    margin-bottom: 20px;
-}
 
 label {
+
     display: block;
+
     font-weight: bold;
+
     margin-bottom: 8px;
 }
 
+
 select,
 textarea {
+
     width: 100%;
+
     border: 1px solid #d1d5db;
+
     border-radius: 10px;
+
     padding: 13px;
+
     font-size: 15px;
+
     outline: none;
+
+    font-family: Arial, sans-serif;
 }
+
 
 select:focus,
 textarea:focus {
+
     border-color: #4f46e5;
+
+    box-shadow:
+        0 0 0 3px rgba(
+            79,
+            70,
+            229,
+            0.10
+        );
 }
 
+
 textarea {
-    min-height: 150px;
+
+    min-height: 160px;
+
     resize: vertical;
 }
 
-.form-group {
-    margin-bottom: 20px;
-}
+
+/* =========================================================
+   SAVE BUTTON
+========================================================= */
 
 .save-btn {
+
     width: 100%;
+
     border: none;
+
     background: #4f46e5;
+
     color: white;
-    padding: 14px;
+
+    padding: 15px;
+
     border-radius: 10px;
+
     font-size: 16px;
+
     font-weight: bold;
+
     cursor: pointer;
+
+    transition: 0.2s;
 }
 
+
 .save-btn:hover {
+
     background: #4338ca;
 }
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
 
 @media (max-width: 700px) {
 
     .header {
+
         flex-direction: column;
+
         align-items: flex-start;
+
         gap: 15px;
     }
 
+
     .header-buttons {
+
         width: 100%;
     }
 
+
     .header-buttons a {
+
         flex: 1;
+
         text-align: center;
     }
 
+
     .details {
+
         grid-template-columns: 1fr;
+    }
+
+
+    .card {
+
+        padding: 20px;
     }
 
 }
@@ -352,9 +654,16 @@ textarea {
 
 </head>
 
+
 <body>
 
+
+<!-- =====================================================
+     HEADER
+====================================================== -->
+
 <div class="header">
+
 
     <div>
 
@@ -368,7 +677,9 @@ textarea {
 
     </div>
 
+
     <div class="header-buttons">
+
 
         <a
             href="dashboard.php"
@@ -377,6 +688,7 @@ textarea {
             Dashboard
         </a>
 
+
         <a
             href="logout.php"
             class="logout-btn"
@@ -384,12 +696,21 @@ textarea {
             Logout
         </a>
 
+
     </div>
+
 
 </div>
 
 
+<!-- =====================================================
+     MAIN
+====================================================== -->
+
 <div class="container">
+
+
+    <!-- BACK BUTTON -->
 
     <a
         href="support.php"
@@ -399,61 +720,53 @@ textarea {
     </a>
 
 
+    <!-- CARD -->
+
     <div class="card">
 
+
+        <!-- TITLE -->
+
         <div class="title">
+
 
             <h2>
 
                 <?php
+
                 echo htmlspecialchars(
                     $request["subject"]
                 );
+
                 ?>
 
             </h2>
 
+
             <div class="request-id">
 
                 Support Request #
+
                 <?php
+
                 echo (int)$request["id"];
+
                 ?>
 
             </div>
+
 
         </div>
 
 
-        <?php if ($message !== ""): ?>
-
-            <div class="alert-success">
-
-                <?php
-                echo htmlspecialchars($message);
-                ?>
-
-            </div>
-
-        <?php endif; ?>
-
-
-        <?php if ($error !== ""): ?>
-
-            <div class="alert-error">
-
-                <?php
-                echo htmlspecialchars($error);
-                ?>
-
-            </div>
-
-        <?php endif; ?>
-
-
-        <!-- Request Details -->
+        <!-- =================================================
+             REQUEST DETAILS
+        ================================================== -->
 
         <div class="details">
+
+
+            <!-- USER PHONE -->
 
             <div class="detail">
 
@@ -464,15 +777,19 @@ textarea {
                 <div class="value">
 
                     <?php
+
                     echo htmlspecialchars(
                         $request["user_phone"]
                     );
+
                     ?>
 
                 </div>
 
             </div>
 
+
+            <!-- CATEGORY -->
 
             <div class="detail">
 
@@ -483,15 +800,19 @@ textarea {
                 <div class="value">
 
                     <?php
+
                     echo htmlspecialchars(
                         $request["category"]
                     );
+
                     ?>
 
                 </div>
 
             </div>
 
+
+            <!-- BOOKING ID -->
 
             <div class="detail">
 
@@ -525,16 +846,21 @@ textarea {
 
             </div>
 
+
         </div>
 
 
-        <!-- User Description -->
+        <!-- =================================================
+             USER DESCRIPTION
+        ================================================== -->
 
         <div class="section">
+
 
             <h3>
                 User Description
             </h3>
+
 
             <div class="description">
 
@@ -550,85 +876,123 @@ textarea {
 
             </div>
 
+
         </div>
 
 
-        <!-- Admin Update Form -->
+        <!-- =================================================
+             ADMIN RESPONSE
+        ================================================== -->
 
         <div class="section">
+
 
             <h3>
                 Admin Response
             </h3>
+
 
             <form
                 method="POST"
                 action=""
             >
 
+
+                <!-- STATUS -->
+
                 <div class="form-group">
 
-                    <label for="status">
+
+                    <label
+                        for="status"
+                    >
                         Request Status
                     </label>
+
 
                     <select
                         id="status"
                         name="status"
                     >
 
+
                         <option
                             value="open"
+
                             <?php
+
                             echo (
                                 $request["status"]
                                 === "open"
                             )
                             ? "selected"
                             : "";
+
                             ?>
                         >
+
                             Open
+
                         </option>
+
 
                         <option
                             value="in progress"
+
                             <?php
+
                             echo (
                                 $request["status"]
                                 === "in progress"
                             )
                             ? "selected"
                             : "";
+
                             ?>
                         >
+
                             In Progress
+
                         </option>
+
 
                         <option
                             value="resolved"
+
                             <?php
+
                             echo (
                                 $request["status"]
                                 === "resolved"
                             )
                             ? "selected"
                             : "";
+
                             ?>
                         >
+
                             Resolved
+
                         </option>
 
+
                     </select>
+
 
                 </div>
 
 
+                <!-- REPLY -->
+
                 <div class="form-group">
 
-                    <label for="admin_reply">
+
+                    <label
+                        for="admin_reply"
+                    >
                         Reply to User
                     </label>
+
 
                     <textarea
                         id="admin_reply"
@@ -642,23 +1006,33 @@ textarea {
 
                     ?></textarea>
 
+
                 </div>
 
+
+                <!-- SAVE -->
 
                 <button
                     type="submit"
                     class="save-btn"
                 >
+
                     Save Reply & Update Status
+
                 </button>
+
 
             </form>
 
+
         </div>
+
 
     </div>
 
+
 </div>
+
 
 </body>
 
