@@ -30,7 +30,7 @@ if ($username === "" || $password === "") {
     exit;
 }
 
-$sql = "SELECT id, username, password_hash
+$sql = "SELECT id, username, password
         FROM admin_users
         WHERE username = ?
         LIMIT 1";
@@ -62,12 +62,13 @@ if ($result->num_rows === 0) {
 
     $stmt->close();
     $conn->close();
+
     exit;
 }
 
 $admin = $result->fetch_assoc();
 
-if (!password_verify($password, $admin["password_hash"])) {
+if ($password !== $admin["password"]) {
 
     echo json_encode([
         "success" => false,
@@ -76,6 +77,7 @@ if (!password_verify($password, $admin["password_hash"])) {
 
     $stmt->close();
     $conn->close();
+
     exit;
 }
 
