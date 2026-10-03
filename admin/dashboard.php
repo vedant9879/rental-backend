@@ -6,10 +6,7 @@ require_once "../db.php";
 
 /*
 |--------------------------------------------------------------------------
-| ADMIN LOGIN
-|--------------------------------------------------------------------------
-| Login form from login.php sends username/password here.
-| After successful verification, admin_id is stored in session.
+| Admin Login
 |--------------------------------------------------------------------------
 */
 
@@ -22,11 +19,11 @@ if (!isset($_SESSION["admin_id"])) {
 
         if ($username === "" || $password === "") {
 
-            header("Location: login.php?error=Enter username and password");
+            header("Location: login.php?error=Username%20and%20password%20are%20required");
             exit;
         }
 
-        $sql = "SELECT id, username, password_hash
+        $sql = "SELECT id, username, password
                 FROM admin_users
                 WHERE username = ?
                 LIMIT 1";
@@ -34,7 +31,7 @@ if (!isset($_SESSION["admin_id"])) {
         $stmt = $conn->prepare($sql);
 
         if (!$stmt) {
-            header("Location: login.php?error=Database error");
+            header("Location: login.php?error=Database%20error");
             exit;
         }
 
@@ -47,17 +44,20 @@ if (!isset($_SESSION["admin_id"])) {
 
             $stmt->close();
 
-            header("Location: login.php?error=Invalid admin credentials");
+            header("Location: login.php?error=Invalid%20admin%20credentials");
             exit;
         }
 
         $admin = $result->fetch_assoc();
 
-        if (!password_verify($password, $admin["password_hash"])) {
+        /*
+         * Plain password comparison as requested.
+         */
+        if ($password !== $admin["password"]) {
 
             $stmt->close();
 
-            header("Location: login.php?error=Invalid admin credentials");
+            header("Location: login.php?error=Invalid%20admin%20credentials");
             exit;
         }
 
@@ -67,31 +67,22 @@ if (!isset($_SESSION["admin_id"])) {
         $_SESSION["admin_username"] = $admin["username"];
 
         $stmt->close();
+
+    } else {
+
+        header("Location: login.php");
+        exit;
     }
 }
 
-
 /*
 |--------------------------------------------------------------------------
-| FINAL SECURITY CHECK
+| Dashboard Statistics
 |--------------------------------------------------------------------------
 */
 
-if (!isset($_SESSION["admin_id"])) {
-
-    header("Location: login.php");
-    exit;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| DASHBOARD COUNTS
-|--------------------------------------------------------------------------
-*/
-
-function getCount($conn, $table) {
-
+function getCount($conn, $table)
+{
     $allowedTables = [
         "users",
         "vehicles",
@@ -103,9 +94,7 @@ function getCount($conn, $table) {
         return 0;
     }
 
-    $result = $conn->query(
-        "SELECT COUNT(*) AS total FROM `$table`"
-    );
+    $result = $conn->query("SELECT COUNT(*) AS total FROM `$table`");
 
     if (!$result) {
         return 0;
@@ -116,62 +105,44 @@ function getCount($conn, $table) {
     return (int)$row["total"];
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| MAIN COUNTS
-|--------------------------------------------------------------------------
-*/
-
 $totalUsers = getCount($conn, "users");
-
 $totalVehicles = getCount($conn, "vehicles");
-
 $totalBookings = getCount($conn, "bookings");
-
 $totalSupport = getCount($conn, "support_requests");
 
-
 /*
 |--------------------------------------------------------------------------
-| SUPPORT STATUS COUNTS
+| Support Status Counts
 |--------------------------------------------------------------------------
 */
 
-$openRequests = 0;
-$inProgressRequests = 0;
-$resolvedRequests = 0;
+$openSupport = 0;
+$progressSupport = 0;
+$resolvedSupport = 0;
 
-$result = $conn->query(
-    "SELECT status, COUNT(*) AS total
-     FROM support_requests
-     GROUP BY status"
-);
+$result = $conn->query("
+    SELECT status, COUNT(*) AS total
+    FROM support_requests
+    GROUP BY status
+");
 
 if ($result) {
 
     while ($row = $result->fetch_assoc()) {
 
         $status = strtolower(trim($row["status"]));
-        $total = (int)$row["total"];
+        $count = (int)$row["total"];
 
         if ($status === "open") {
+            $openSupport = $count;
+        }
 
-            $openRequests = $total;
+        elseif ($status === "in progress") {
+            $progressSupport = $count;
+        }
 
-        } elseif (
-            $status === "in progress" ||
-            $status === "in_progress"
-        ) {
-
-            $inProgressRequests = $total;
-
-        } elseif (
-            $status === "resolved" ||
-            $status === "closed"
-        ) {
-
-            $resolvedRequests = $total;
+        elseif ($status === "resolved") {
+            $resolvedSupport = $count;
         }
     }
 }
@@ -179,385 +150,232 @@ if ($result) {
 ?>
 
 <!DOCTYPE html>
-
 <html lang="en">
 
 <head>
 
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>RentX Admin Dashboard</title>
-
-
-    <style>
-
-        * {
-            box-sizing: border-box;
-        }
-
-
-        body {
-
-            margin: 0;
-
-            font-family:
-                Arial,
-                Helvetica,
-                sans-serif;
-
-            background: #f5f6fa;
-
-            color: #111827;
-        }
-
-
-        /* HEADER */
-
-        .header {
-
-            height: 72px;
-
-            background: #111827;
-
-            color: white;
-
-            display: flex;
-
-            align-items: center;
-
-            justify-content: space-between;
-
-            padding: 0 30px;
-        }
-
-
-        .brand {
-
-            font-size: 24px;
-
-            font-weight: bold;
-        }
-
-
-        .admin-info {
-
-            display: flex;
-
-            align-items: center;
-
-            gap: 18px;
-
-            font-size: 14px;
-        }
-
-
-        .logout {
-
-            background: #dc2626;
-
-            color: white;
-
-            text-decoration: none;
-
-            padding: 9px 15px;
-
-            border-radius: 8px;
-
-            font-weight: bold;
-        }
-
-
-        /* PAGE */
-
-        .container {
-
-            max-width: 1400px;
-
-            margin: auto;
-
-            padding: 30px;
-        }
-
-
-        .welcome {
-
-            margin-bottom: 25px;
-        }
-
-
-        .welcome h1 {
-
-            margin: 0;
-
-            font-size: 28px;
-        }
-
-
-        .welcome p {
-
-            margin-top: 7px;
-
-            color: #6b7280;
-        }
-
-
-        /* CARDS */
-
-        .stats {
-
-            display: grid;
-
-            grid-template-columns:
-                repeat(4, 1fr);
-
-            gap: 20px;
-
-            margin-bottom: 30px;
-        }
-
-
-        .card {
-
-            background: white;
-
-            border-radius: 16px;
-
-            padding: 24px;
-
-            box-shadow:
-                0 4px 15px
-                rgba(0,0,0,0.06);
-        }
-
-
-        .card-title {
-
-            color: #6b7280;
-
-            font-size: 14px;
-
-            margin-bottom: 12px;
-        }
-
-
-        .card-number {
-
-            font-size: 30px;
-
-            font-weight: bold;
-        }
-
-
-        .icon {
-
-            font-size: 25px;
-
-            margin-bottom: 12px;
-        }
-
-
-        /* SUPPORT */
-
-        .support-title {
-
-            font-size: 21px;
-
-            font-weight: bold;
-
-            margin-bottom: 18px;
-        }
-
-
-        .support-grid {
-
-            display: grid;
-
-            grid-template-columns:
-                repeat(3, 1fr);
-
-            gap: 20px;
-        }
-
-
-        .support-card {
-
-            background: white;
-
-            padding: 25px;
-
-            border-radius: 16px;
-
-            box-shadow:
-                0 4px 15px
-                rgba(0,0,0,0.06);
-        }
-
-
-        .support-card h3 {
-
-            margin: 0 0 10px;
-
-            font-size: 16px;
-        }
-
-
-        .support-number {
-
-            font-size: 28px;
-
-            font-weight: bold;
-        }
-
-
-        .open {
-            color: #dc2626;
-        }
-
-
-        .progress {
-            color: #f59e0b;
-        }
-
-
-        .resolved {
-            color: #16a34a;
-        }
-
-
-        .support-button {
-
-            display: inline-block;
-
-            margin-top: 25px;
-
-            background: #4f46e5;
-
-            color: white;
-
-            text-decoration: none;
-
-            padding: 12px 20px;
-
-            border-radius: 9px;
-
-            font-weight: bold;
-        }
-
-
-        /* RESPONSIVE */
-
-        @media (max-width: 900px) {
-
-            .stats {
-
-                grid-template-columns:
-                    repeat(2, 1fr);
-            }
-
-            .support-grid {
-
-                grid-template-columns: 1fr;
-            }
-        }
-
-
-        @media (max-width: 600px) {
-
-            .header {
-
-                padding: 0 15px;
-            }
-
-            .container {
-
-                padding: 20px;
-            }
-
-            .stats {
-
-                grid-template-columns: 1fr;
-            }
-
-            .admin-info span {
-
-                display: none;
-            }
-        }
-
-    </style>
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>RentX Admin Dashboard</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f5f6fa;
+    color: #111827;
+}
+
+.header {
+    background: #111827;
+    color: white;
+    padding: 22px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-left h1 {
+    margin: 0;
+    font-size: 25px;
+}
+
+.header-left p {
+    margin: 6px 0 0;
+    color: #cbd5e1;
+}
+
+.logout {
+    background: #dc2626;
+    color: white;
+    text-decoration: none;
+    padding: 11px 18px;
+    border-radius: 9px;
+    font-weight: bold;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 35px auto;
+    padding: 0 20px;
+}
+
+.welcome {
+    background: white;
+    padding: 25px;
+    border-radius: 16px;
+    margin-bottom: 25px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.06);
+}
+
+.welcome h2 {
+    margin: 0 0 8px;
+}
+
+.welcome p {
+    margin: 0;
+    color: #6b7280;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.06);
+}
+
+.card-title {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.card-number {
+    font-size: 32px;
+    font-weight: bold;
+}
+
+.support-section {
+    margin-top: 30px;
+}
+
+.support-section h2 {
+    margin-bottom: 18px;
+}
+
+.support-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+.support-card {
+    background: white;
+    padding: 22px;
+    border-radius: 16px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.06);
+}
+
+.support-card strong {
+    display: block;
+    font-size: 28px;
+    margin-top: 8px;
+}
+
+.open {
+    border-left: 5px solid #dc2626;
+}
+
+.progress {
+    border-left: 5px solid #f59e0b;
+}
+
+.resolved {
+    border-left: 5px solid #16a34a;
+}
+
+.action-section {
+    margin-top: 30px;
+}
+
+.action-button {
+    display: inline-block;
+    background: #4f46e5;
+    color: white;
+    text-decoration: none;
+    padding: 15px 22px;
+    border-radius: 10px;
+    font-weight: bold;
+}
+
+.action-button:hover {
+    background: #4338ca;
+}
+
+@media (max-width: 900px) {
+
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .support-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 600px) {
+
+    .header {
+        padding: 20px;
+    }
+
+    .header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+
+    .stats {
+        grid-template-columns: 1fr;
+    }
+}
+
+</style>
 
 </head>
 
-
 <body>
-
-
-<!-- HEADER -->
 
 <div class="header">
 
-    <div class="brand">
-        🚗 RentX Admin
-    </div>
+    <div class="header-left">
 
-
-    <div class="admin-info">
-
-        <span>
-            👤
-            <?php
-            echo htmlspecialchars(
-                $_SESSION["admin_username"]
-            );
-            ?>
-        </span>
-
-
-        <a
-            href="logout.php"
-            class="logout"
-        >
-            Logout
-        </a>
-
-    </div>
-
-</div>
-
-
-<!-- CONTENT -->
-
-<div class="container">
-
-
-    <div class="welcome">
-
-        <h1>
-            Admin Dashboard
-        </h1>
+        <h1>RentX Admin Dashboard</h1>
 
         <p>
-            Manage your RentX platform from one place.
+            Private Administrator Panel
         </p>
 
     </div>
 
+    <a class="logout" href="logout.php">
+        Logout
+    </a>
 
-    <!-- MAIN STATISTICS -->
+</div>
+
+<div class="container">
+
+    <div class="welcome">
+
+        <h2>
+            Welcome,
+            <?php echo htmlspecialchars($_SESSION["admin_username"]); ?>
+        </h2>
+
+        <p>
+            Manage your RentX rental platform from this private dashboard.
+        </p>
+
+    </div>
 
     <div class="stats">
 
-
         <div class="card">
-
-            <div class="icon">
-                👥
-            </div>
 
             <div class="card-title">
                 Total Users
@@ -569,12 +387,7 @@ if ($result) {
 
         </div>
 
-
         <div class="card">
-
-            <div class="icon">
-                🚗
-            </div>
 
             <div class="card-title">
                 Total Vehicles
@@ -586,12 +399,7 @@ if ($result) {
 
         </div>
 
-
         <div class="card">
-
-            <div class="icon">
-                📋
-            </div>
 
             <div class="card-title">
                 Total Bookings
@@ -603,12 +411,7 @@ if ($result) {
 
         </div>
 
-
         <div class="card">
-
-            <div class="icon">
-                🎫
-            </div>
 
             <div class="card-title">
                 Support Requests
@@ -622,68 +425,60 @@ if ($result) {
 
     </div>
 
+    <div class="support-section">
 
-    <!-- SUPPORT -->
+        <h2>
+            Support Request Status
+        </h2>
 
-    <div class="support-title">
-        Support Requests
-    </div>
+        <div class="support-grid">
 
+            <div class="support-card open">
 
-    <div class="support-grid">
+                Open
 
+                <strong>
+                    <?php echo $openSupport; ?>
+                </strong>
 
-        <div class="support-card">
-
-            <h3>
-                🔴 Open
-            </h3>
-
-            <div class="support-number open">
-                <?php echo $openRequests; ?>
             </div>
 
-        </div>
+            <div class="support-card progress">
 
+                In Progress
 
-        <div class="support-card">
+                <strong>
+                    <?php echo $progressSupport; ?>
+                </strong>
 
-            <h3>
-                🟠 In Progress
-            </h3>
-
-            <div class="support-number progress">
-                <?php echo $inProgressRequests; ?>
             </div>
 
-        </div>
+            <div class="support-card resolved">
 
+                Resolved
 
-        <div class="support-card">
+                <strong>
+                    <?php echo $resolvedSupport; ?>
+                </strong>
 
-            <h3>
-                🟢 Resolved
-            </h3>
-
-            <div class="support-number resolved">
-                <?php echo $resolvedRequests; ?>
             </div>
 
         </div>
 
     </div>
 
+    <div class="action-section">
 
-    <a
-        href="support.php"
-        class="support-button"
-    >
-        Manage Support Requests →
-    </a>
+        <a class="action-button"
+           href="support.php">
 
+            Manage Support Requests
+
+        </a>
+
+    </div>
 
 </div>
-
 
 </body>
 
