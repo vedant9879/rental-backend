@@ -429,15 +429,22 @@ body {
 
                     </div>
 
-                    <div class="subject">
+               <div class="subject">
 
-                        <?php
-                        echo htmlspecialchars(
-                            $request["subject"]
-                        );
-                        ?>
+    <a
+        href="request.php?id=<?php echo (int)$request['id']; ?>"
+        style="color:#111827; text-decoration:none; cursor:pointer;"
+    >
 
-                    </div>
+        <?php
+        echo htmlspecialchars(
+            $request["subject"]
+        );
+        ?>
+
+    </a>
+
+</div>
 
                 </div>
 
