@@ -8,48 +8,103 @@ header("Content-Type: application/json; charset=UTF-8");
 $ownerPhone = trim($_POST['owner_phone'] ?? '');
 $vehicleName = trim($_POST['vehicle_name'] ?? '');
 $vehicleType = trim($_POST['vehicle_type'] ?? '');
+$serviceType = trim($_POST['service_type'] ?? 'Self Drive');
+
 $pricePerDay = trim($_POST['price_per_day'] ?? '');
 $price6hr = trim($_POST['price_6hr'] ?? '0');
 $price12hr = trim($_POST['price_12hr'] ?? '0');
+
 $city = trim($_POST['city'] ?? '');
 $address = trim($_POST['address'] ?? '');
+
 $quantity = trim($_POST['quantity'] ?? '');
 $deposit = trim($_POST['deposit'] ?? '');
+
 $vehicleImage = trim($_POST['vehicle_image'] ?? '');
+
+
+/*
+ * Validate required fields
+ */
 
 if (
     $ownerPhone === '' ||
     $vehicleName === '' ||
     $vehicleType === '' ||
+    $serviceType === '' ||
     $pricePerDay === '' ||
     $city === '' ||
     $quantity === ''
 ) {
+
     echo json_encode([
         "status" => "error",
         "message" => "Required vehicle fields are missing"
     ]);
+
     exit();
 }
 
-if (!is_numeric($pricePerDay) ||
+
+/*
+ * Validate service type
+ */
+
+$allowedServiceTypes = [
+    "Self Drive",
+    "With Driver",
+    "Goods Transportation",
+    "Self Drive + With Driver"
+];
+
+if (!in_array($serviceType, $allowedServiceTypes, true)) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid service type"
+    ]);
+
+    exit();
+}
+
+
+/*
+ * Validate numeric values
+ */
+
+if (
+    !is_numeric($pricePerDay) ||
     !is_numeric($price6hr) ||
     !is_numeric($price12hr) ||
     !is_numeric($quantity) ||
     !is_numeric($deposit)
 ) {
+
     echo json_encode([
         "status" => "error",
         "message" => "Invalid vehicle values"
     ]);
+
     exit();
 }
+
 
 $pricePerDay = (float)$pricePerDay;
 $price6hr = (float)$price6hr;
 $price12hr = (float)$price12hr;
 $quantity = (int)$quantity;
 $deposit = (float)$deposit;
+
+
+if ($quantity <= 0) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Quantity must be at least 1"
+    ]);
+
+    exit();
+}
 
 
 /*
@@ -62,6 +117,7 @@ $sql = "
         owner_phone,
         vehicle_name,
         vehicle_type,
+        service_type,
         vehicle_image,
         price_per_day,
         price_6hr,
@@ -71,10 +127,12 @@ $sql = "
         quantity,
         deposit
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ";
 
+
 $stmt = mysqli_prepare($conn, $sql);
+
 
 if (!$stmt) {
 
@@ -87,12 +145,21 @@ if (!$stmt) {
 }
 
 
+/*
+ * Bind parameters
+ *
+ * s = string
+ * d = decimal
+ * i = integer
+ */
+
 mysqli_stmt_bind_param(
     $stmt,
-    "ssssdddssid",
+    "ssssdddssisd",
     $ownerPhone,
     $vehicleName,
     $vehicleType,
+    $serviceType,
     $vehicleImage,
     $pricePerDay,
     $price6hr,
@@ -106,19 +173,21 @@ mysqli_stmt_bind_param(
 
 if (!mysqli_stmt_execute($stmt)) {
 
+    $error = mysqli_stmt_error($stmt);
+
     mysqli_stmt_close($stmt);
 
     echo json_encode([
         "status" => "error",
-        "message" => "Unable to add vehicle"
+        "message" => "Unable to add vehicle",
+        "error" => $error
     ]);
 
     exit();
 }
 
 
-$vehicleId =
-    mysqli_insert_id($conn);
+$vehicleId = mysqli_insert_id($conn);
 
 mysqli_stmt_close($stmt);
 
@@ -186,7 +255,8 @@ if ($stmtNotification) {
 echo json_encode([
     "status" => "success",
     "message" => "Vehicle added successfully",
-    "vehicle_id" => $vehicleId
+    "vehicle_id" => $vehicleId,
+    "service_type" => $serviceType
 ]);
 
 ?>
