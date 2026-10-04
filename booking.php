@@ -373,11 +373,15 @@ mysqli_stmt_close(
 | CHECK OWNER NOTIFICATION PREFERENCE
 |--------------------------------------------------------------------------
 |
-| Booking notification:
-| booking_updates = 1  → notification ON
-| booking_updates = 0  → notification OFF
+| Notification preference is stored in the users table.
 |
-| If the owner does not have a preference record yet,
+| notification_booking = 1
+| → Booking notification is ON
+|
+| notification_booking = 0
+| → Booking notification is OFF
+|
+| If the owner record or preference cannot be found,
 | notification remains ON by default.
 |
 */
@@ -386,9 +390,9 @@ $sendNotification = true;
 
 
 $sqlPreference = "
-    SELECT booking_updates
-    FROM notification_preferences
-    WHERE user_phone = ?
+    SELECT notification_booking
+    FROM users
+    WHERE phone = ?
     LIMIT 1
 ";
 
@@ -425,7 +429,9 @@ if ($stmtPreference) {
         );
 
         $sendNotification =
-            ((int)$preference['booking_updates'] === 1);
+            ((int)(
+                $preference['notification_booking'] ?? 1
+            ) === 1);
     }
 
     mysqli_stmt_close(
