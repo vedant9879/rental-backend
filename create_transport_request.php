@@ -233,10 +233,10 @@ mysqli_stmt_close(
 
 if (
     !isset($vehicle['service_type']) ||
-    !strcasecmp(
+    strcasecmp(
         $vehicle['service_type'],
         'Goods Transportation'
-    ) == 0
+    ) !== 0
 ) {
 
     echo json_encode([
