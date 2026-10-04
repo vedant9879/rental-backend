@@ -5,8 +5,22 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
+
+/*
+|--------------------------------------------------------------------------
+| RECEIVE DATA
+|--------------------------------------------------------------------------
+*/
+
 $bookingId = trim($_POST['booking_id'] ?? '');
 $newStatus = strtolower(trim($_POST['status'] ?? ''));
+
+
+/*
+|--------------------------------------------------------------------------
+| VALIDATE INPUT
+|--------------------------------------------------------------------------
+*/
 
 if ($bookingId === '' || $newStatus === '') {
 
@@ -18,6 +32,7 @@ if ($bookingId === '' || $newStatus === '') {
     exit();
 }
 
+
 if (!ctype_digit($bookingId)) {
 
     echo json_encode([
@@ -28,7 +43,9 @@ if (!ctype_digit($bookingId)) {
     exit();
 }
 
+
 $bookingId = (int)$bookingId;
+
 
 $allowedStatuses = [
     "pending",
@@ -36,6 +53,7 @@ $allowedStatuses = [
     "cancelled",
     "completed"
 ];
+
 
 if (!in_array($newStatus, $allowedStatuses, true)) {
 
@@ -49,10 +67,20 @@ if (!in_array($newStatus, $allowedStatuses, true)) {
 
 
 /*
- * Get booking information.
- * We need user_phone and vehicle_name
- * so the renter receives a notification.
- */
+|--------------------------------------------------------------------------
+| GET BOOKING INFORMATION
+|--------------------------------------------------------------------------
+|
+| We need:
+| - renter phone
+| - vehicle name
+| - vehicle ID
+| - quantity
+| - dates
+| - current status
+| - vehicle stock
+|
+*/
 
 $sqlBooking = "
     SELECT
@@ -72,10 +100,12 @@ $sqlBooking = "
     LIMIT 1
 ";
 
+
 $stmtBooking = mysqli_prepare(
     $conn,
     $sqlBooking
 );
+
 
 if (!$stmtBooking) {
 
@@ -87,20 +117,24 @@ if (!$stmtBooking) {
     exit();
 }
 
+
 mysqli_stmt_bind_param(
     $stmtBooking,
     "i",
     $bookingId
 );
 
+
 mysqli_stmt_execute(
     $stmtBooking
 );
+
 
 $resultBooking =
     mysqli_stmt_get_result(
         $stmtBooking
     );
+
 
 if (
     !$resultBooking ||
@@ -119,15 +153,23 @@ if (
     exit();
 }
 
+
 $booking =
     mysqli_fetch_assoc(
         $resultBooking
     );
 
+
 mysqli_stmt_close(
     $stmtBooking
 );
 
+
+/*
+|--------------------------------------------------------------------------
+| CURRENT STATUS
+|--------------------------------------------------------------------------
+*/
 
 $currentStatus =
     strtolower(
@@ -138,8 +180,10 @@ $currentStatus =
 
 
 /*
- * Same status does not need another update.
- */
+|--------------------------------------------------------------------------
+| SAME STATUS CHECK
+|--------------------------------------------------------------------------
+*/
 
 if ($currentStatus === $newStatus) {
 
@@ -153,9 +197,11 @@ if ($currentStatus === $newStatus) {
 
 
 /*
- * Completed and cancelled bookings
- * cannot be changed again.
- */
+|--------------------------------------------------------------------------
+| COMPLETED / CANCELLED BOOKINGS
+| CANNOT BE CHANGED AGAIN
+|--------------------------------------------------------------------------
+*/
 
 if (
     $currentStatus === "cancelled" ||
@@ -172,8 +218,10 @@ if (
 
 
 /*
- * Only pending bookings can be accepted.
- */
+|--------------------------------------------------------------------------
+| ONLY PENDING BOOKINGS CAN BE ACCEPTED
+|--------------------------------------------------------------------------
+*/
 
 if (
     $newStatus === "accepted" &&
@@ -190,9 +238,14 @@ if (
 
 
 /*
- * When accepting a booking,
- * check available vehicle quantity.
- */
+|--------------------------------------------------------------------------
+| CHECK AVAILABLE VEHICLE QUANTITY
+|--------------------------------------------------------------------------
+|
+| When accepting a booking, check the quantity
+| already reserved by other accepted bookings.
+|
+*/
 
 if ($newStatus === "accepted") {
 
@@ -210,11 +263,13 @@ if ($newStatus === "accepted") {
         AND end_date >= ?
     ";
 
+
     $stmtReserved =
         mysqli_prepare(
             $conn,
             $sqlReserved
         );
+
 
     if (!$stmtReserved) {
 
@@ -226,6 +281,7 @@ if ($newStatus === "accepted") {
         exit();
     }
 
+
     mysqli_stmt_bind_param(
         $stmtReserved,
         "iiss",
@@ -235,16 +291,20 @@ if ($newStatus === "accepted") {
         $booking['start_date']
     );
 
+
     mysqli_stmt_execute(
         $stmtReserved
     );
+
 
     $resultReserved =
         mysqli_stmt_get_result(
             $stmtReserved
         );
 
+
     $reserved = 0;
+
 
     if ($resultReserved) {
 
@@ -253,12 +313,14 @@ if ($newStatus === "accepted") {
                 $resultReserved
             );
 
+
         $reserved =
             (int)(
                 $reservedRow['reserved']
                 ?? 0
             );
     }
+
 
     mysqli_stmt_close(
         $stmtReserved
@@ -268,8 +330,10 @@ if ($newStatus === "accepted") {
     $vehicleStock =
         (int)$booking['vehicle_stock'];
 
+
     $requestedQuantity =
         (int)$booking['quantity'];
+
 
     $available =
         $vehicleStock - $reserved;
@@ -292,8 +356,10 @@ if ($newStatus === "accepted") {
 
 
 /*
- * Update booking status.
- */
+|--------------------------------------------------------------------------
+| UPDATE BOOKING STATUS
+|--------------------------------------------------------------------------
+*/
 
 $sqlUpdate = "
     UPDATE bookings
@@ -302,11 +368,13 @@ $sqlUpdate = "
     LIMIT 1
 ";
 
+
 $stmtUpdate =
     mysqli_prepare(
         $conn,
         $sqlUpdate
     );
+
 
 if (!$stmtUpdate) {
 
@@ -318,6 +386,7 @@ if (!$stmtUpdate) {
     exit();
 }
 
+
 mysqli_stmt_bind_param(
     $stmtUpdate,
     "si",
@@ -325,10 +394,12 @@ mysqli_stmt_bind_param(
     $bookingId
 );
 
+
 $updated =
     mysqli_stmt_execute(
         $stmtUpdate
     );
+
 
 mysqli_stmt_close(
     $stmtUpdate
@@ -347,19 +418,26 @@ if (!$updated) {
 
 
 /*
- * Create notification for the renter.
- */
+|--------------------------------------------------------------------------
+| RENTER INFORMATION
+|--------------------------------------------------------------------------
+*/
 
 $userPhone =
-    $booking['user_phone'];
+    trim(
+        $booking['user_phone']
+    );
+
 
 $vehicleName =
     $booking['vehicle_name'];
 
 
 /*
- * Notification content
- */
+|--------------------------------------------------------------------------
+| NOTIFICATION CONTENT
+|--------------------------------------------------------------------------
+*/
 
 $title = "";
 $message = "";
@@ -378,7 +456,8 @@ switch ($newStatus) {
             $vehicleName .
             " has been accepted by the owner.";
 
-        $type = "accepted";
+        $type =
+            "accepted";
 
         break;
 
@@ -393,7 +472,8 @@ switch ($newStatus) {
             $vehicleName .
             " has been cancelled.";
 
-        $type = "cancelled";
+        $type =
+            "cancelled";
 
         break;
 
@@ -408,7 +488,8 @@ switch ($newStatus) {
             $vehicleName .
             " has been completed.";
 
-        $type = "booking";
+        $type =
+            "booking";
 
         break;
 
@@ -423,66 +504,158 @@ switch ($newStatus) {
             $vehicleName .
             " is pending confirmation.";
 
-        $type = "booking";
+        $type =
+            "booking";
 
         break;
 }
 
 
 /*
- * Insert notification.
- *
- * Notification failure should not
- * undo the successful booking update.
- */
+|--------------------------------------------------------------------------
+| CHECK RENTER BOOKING NOTIFICATION PREFERENCE
+|--------------------------------------------------------------------------
+|
+| notification_booking = 1
+| → Booking notifications ON
+|
+| notification_booking = 0
+| → Booking notifications OFF
+|
+| Default remains ON if the preference cannot
+| be found.
+|
+*/
 
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
+$sendNotification = true;
+
+
+$sqlPreference = "
+    SELECT notification_booking
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
 ";
 
-$stmtNotification =
+
+$stmtPreference =
     mysqli_prepare(
         $conn,
-        $sqlNotification
+        $sqlPreference
     );
 
-if ($stmtNotification) {
+
+if ($stmtPreference) {
 
     mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $userPhone,
-        $title,
-        $message,
-        $type
+        $stmtPreference,
+        "s",
+        $userPhone
     );
+
 
     mysqli_stmt_execute(
-        $stmtNotification
+        $stmtPreference
     );
 
+
+    $resultPreference =
+        mysqli_stmt_get_result(
+            $stmtPreference
+        );
+
+
+    if (
+        $resultPreference &&
+        mysqli_num_rows($resultPreference) > 0
+    ) {
+
+        $preference =
+            mysqli_fetch_assoc(
+                $resultPreference
+            );
+
+
+        $sendNotification =
+            (
+                (int)(
+                    $preference['notification_booking']
+                    ?? 1
+                ) === 1
+            );
+    }
+
+
     mysqli_stmt_close(
-        $stmtNotification
+        $stmtPreference
     );
 }
 
 
 /*
- * Final response.
- */
+|--------------------------------------------------------------------------
+| CREATE BOOKING STATUS NOTIFICATION
+|--------------------------------------------------------------------------
+*/
+
+if ($sendNotification) {
+
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
+
+
+    $stmtNotification =
+        mysqli_prepare(
+            $conn,
+            $sqlNotification
+        );
+
+
+    if ($stmtNotification) {
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $userPhone,
+            $title,
+            $message,
+            $type
+        );
+
+
+        mysqli_stmt_execute(
+            $stmtNotification
+        );
+
+
+        mysqli_stmt_close(
+            $stmtNotification
+        );
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FINAL RESPONSE
+|--------------------------------------------------------------------------
+*/
 
 echo json_encode([
     "status" => "success",
     "message" =>
-        "Booking status updated successfully"
+        "Booking status updated successfully",
+    "notification_sent" =>
+        $sendNotification
 ]);
 
 ?>
