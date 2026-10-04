@@ -186,59 +186,139 @@ mysqli_stmt_close(
 
 
 /*
- * Notify renter.
+ * Check renter's Booking Updates notification preference.
+ *
+ * notification_booking = 1
+ *     -> create notification
+ *
+ * notification_booking = 0
+ *     -> do not create notification
+ *
+ * If the preference cannot be read, default to ON
+ * so existing notification behaviour is preserved.
  */
 
-$title =
-    "Vehicle Returned";
+$sendNotification = true;
 
-$message =
-    "Your " .
-    ($booking['vehicle_name'] ?? 'vehicle') .
-    " has been returned and the rental is completed.";
-
-$type =
-    "booking";
-
-
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
+$sqlPreference = "
+    SELECT notification_booking
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
 ";
 
-$stmtNotification = mysqli_prepare(
+$stmtPreference = mysqli_prepare(
     $conn,
-    $sqlNotification
+    $sqlPreference
 );
 
-if ($stmtNotification) {
+if ($stmtPreference) {
 
-    $userPhone =
-        $booking['user_phone'];
+    $userPhone = $booking['user_phone'];
 
     mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $userPhone,
-        $title,
-        $message,
-        $type
+        $stmtPreference,
+        "s",
+        $userPhone
     );
 
-    mysqli_stmt_execute(
-        $stmtNotification
-    );
+    if (mysqli_stmt_execute($stmtPreference)) {
+
+        $resultPreference =
+            mysqli_stmt_get_result(
+                $stmtPreference
+            );
+
+        if (
+            $resultPreference &&
+            mysqli_num_rows($resultPreference) > 0
+        ) {
+
+            $preference =
+                mysqli_fetch_assoc(
+                    $resultPreference
+                );
+
+            $sendNotification =
+                (
+                    (int)(
+                        $preference[
+                            'notification_booking'
+                        ] ?? 1
+                    ) === 1
+                );
+        }
+    }
 
     mysqli_stmt_close(
-        $stmtNotification
+        $stmtPreference
     );
+}
+
+
+/*
+ * Notify renter only when Booking Updates are enabled.
+ */
+
+$notificationSent = false;
+
+if ($sendNotification) {
+
+    $title =
+        "Vehicle Returned";
+
+    $message =
+        "Your " .
+        ($booking['vehicle_name'] ?? 'vehicle') .
+        " has been returned and the rental is completed.";
+
+    $type =
+        "booking";
+
+
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
+
+    $stmtNotification = mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+    if ($stmtNotification) {
+
+        $userPhone =
+            $booking['user_phone'];
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $userPhone,
+            $title,
+            $message,
+            $type
+        );
+
+        if (
+            mysqli_stmt_execute(
+                $stmtNotification
+            )
+        ) {
+            $notificationSent = true;
+        }
+
+        mysqli_stmt_close(
+            $stmtNotification
+        );
+    }
 }
 
 
@@ -251,7 +331,8 @@ echo json_encode([
     "message" => "Vehicle returned successfully",
     "booking_id" => $bookingId,
     "status" => "completed",
-    "return_time" => $returnTime
+    "return_time" => $returnTime,
+    "notification_sent" => $notificationSent
 ]);
 
 ?>
