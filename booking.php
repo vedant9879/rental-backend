@@ -289,8 +289,7 @@ if ($quantity > $available) {
 | INSERT BOOKING
 |--------------------------------------------------------------------------
 |
-| IMPORTANT:
-| owner_phone is now stored with the booking.
+| owner_phone is stored with the booking.
 |
 */
 
@@ -371,57 +370,126 @@ mysqli_stmt_close(
 
 /*
 |--------------------------------------------------------------------------
+| CHECK OWNER NOTIFICATION PREFERENCE
+|--------------------------------------------------------------------------
+|
+| Booking notification:
+| booking_updates = 1  → notification ON
+| booking_updates = 0  → notification OFF
+|
+| If the owner does not have a preference record yet,
+| notification remains ON by default.
+|
+*/
+
+$sendNotification = true;
+
+
+$sqlPreference = "
+    SELECT booking_updates
+    FROM notification_preferences
+    WHERE user_phone = ?
+    LIMIT 1
+";
+
+
+$stmtPreference = mysqli_prepare(
+    $conn,
+    $sqlPreference
+);
+
+
+if ($stmtPreference) {
+
+    mysqli_stmt_bind_param(
+        $stmtPreference,
+        "s",
+        $ownerPhone
+    );
+
+    mysqli_stmt_execute(
+        $stmtPreference
+    );
+
+    $resultPreference = mysqli_stmt_get_result(
+        $stmtPreference
+    );
+
+    if (
+        $resultPreference &&
+        mysqli_num_rows($resultPreference) > 0
+    ) {
+
+        $preference = mysqli_fetch_assoc(
+            $resultPreference
+        );
+
+        $sendNotification =
+            ((int)$preference['booking_updates'] === 1);
+    }
+
+    mysqli_stmt_close(
+        $stmtPreference
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
 | CREATE OWNER NOTIFICATION
 |--------------------------------------------------------------------------
 */
 
-$title = "New Booking Request";
+if ($sendNotification) {
 
-$message =
-    "A customer has requested to book your " .
-    $vehicle['vehicle_name'] .
-    ".";
+    $title = "New Booking Request";
 
-$type = "booking";
+    $message =
+        "A customer has requested to book your " .
+        $vehicle['vehicle_name'] .
+        ".";
 
-
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
-";
+    $type = "booking";
 
 
-$stmtNotification = mysqli_prepare(
-    $conn,
-    $sqlNotification
-);
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
 
 
-if ($stmtNotification) {
-
-    mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $ownerPhone,
-        $title,
-        $message,
-        $type
+    $stmtNotification = mysqli_prepare(
+        $conn,
+        $sqlNotification
     );
 
-    mysqli_stmt_execute(
-        $stmtNotification
-    );
 
-    mysqli_stmt_close(
-        $stmtNotification
-    );
+    if ($stmtNotification) {
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $ownerPhone,
+            $title,
+            $message,
+            $type
+        );
+
+        mysqli_stmt_execute(
+            $stmtNotification
+        );
+
+        mysqli_stmt_close(
+            $stmtNotification
+        );
+    }
 }
 
 
@@ -435,7 +503,8 @@ echo json_encode([
     "status" => "success",
     "message" => "Booking request submitted successfully",
     "booking_id" => $bookingId,
-    "owner_phone" => $ownerPhone
+    "owner_phone" => $ownerPhone,
+    "notification_sent" => $sendNotification
 ]);
 
 ?>
