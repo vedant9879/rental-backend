@@ -5,6 +5,11 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
+
+// =====================================================
+// GET ALL VEHICLES
+// =====================================================
+
 $sql = "
     SELECT *
     FROM vehicles
@@ -15,13 +20,19 @@ $res = mysqli_query($conn, $sql);
 
 $data = array();
 
+
+// =====================================================
+// CHECK DATABASE RESULT
+// =====================================================
+
 if ($res) {
 
     while ($row = mysqli_fetch_assoc($res)) {
 
-        // =====================================================
+
+        // =================================================
         // IMAGE URL
-        // =====================================================
+        // =================================================
 
         if (
             isset($row['vehicle_image']) &&
@@ -31,13 +42,16 @@ if ($res) {
 
             $row['vehicle_image'] =
                 "https://rental-backend-production-8cbf.up.railway.app/" .
-                ltrim($row['vehicle_image'], "/");
+                ltrim(
+                    $row['vehicle_image'],
+                    "/"
+                );
         }
 
 
-        // =====================================================
-        // DEFAULT VALUES
-        // =====================================================
+        // =================================================
+        // NORMAL VEHICLE DEFAULTS
+        // =================================================
 
         $row['vehicle_name'] =
             $row['vehicle_name'] ?? "";
@@ -70,18 +84,38 @@ if ($res) {
             $row['price_12hr'] ?? "0";
 
 
-        // =====================================================
-        // ADD TO RESPONSE
-        // =====================================================
+        // =================================================
+        // TRANSPORT PRICING DEFAULTS
+        // =================================================
+
+        $row['transport_base_fare'] =
+            $row['transport_base_fare'] ?? "0";
+
+        $row['transport_minimum_fare'] =
+            $row['transport_minimum_fare'] ?? "0";
+
+        $row['transport_per_km'] =
+            $row['transport_per_km'] ?? "0";
+
+        $row['transport_driver_charge'] =
+            $row['transport_driver_charge'] ?? "0";
+
+        $row['transport_waiting_charge'] =
+            $row['transport_waiting_charge'] ?? "0";
+
+
+        // =================================================
+        // ADD VEHICLE
+        // =================================================
 
         $data[] = $row;
     }
 }
 
 
-// =========================================================
+// =====================================================
 // JSON RESPONSE
-// =========================================================
+// =====================================================
 
 echo json_encode($data);
 
