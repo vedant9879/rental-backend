@@ -4,6 +4,7 @@ session_start();
 
 require_once "../db.php";
 
+
 /*
 |--------------------------------------------------------------------------
 | Admin Authentication
@@ -11,6 +12,7 @@ require_once "../db.php";
 */
 
 if (!isset($_SESSION["admin_id"])) {
+
     header("Location: login.php");
     exit;
 }
@@ -27,6 +29,7 @@ $request_id = isset($_GET["id"])
     : 0;
 
 if ($request_id <= 0) {
+
     header("Location: support.php");
     exit;
 }
@@ -61,7 +64,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         "resolved"
     ];
 
-
     if (!in_array(
         $status,
         $allowed_statuses,
@@ -74,24 +76,116 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     /*
     |--------------------------------------------------------------------------
-    | Update Database
+    | Get Existing Request
     |--------------------------------------------------------------------------
     */
 
-    $sql = "UPDATE support_requests
-            SET admin_reply = ?,
-                status = ?
-            WHERE id = ?";
+    $get_sql = "
+        SELECT
+            id,
+            user_phone,
+            admin_reply,
+            status
+        FROM support_requests
+        WHERE id = ?
+        LIMIT 1
+    ";
+
+    $get_stmt = $conn->prepare($get_sql);
+
+    if (!$get_stmt) {
+
+        die("Database error.");
+    }
+
+    $get_stmt->bind_param(
+        "i",
+        $request_id
+    );
+
+    $get_stmt->execute();
+
+    $get_result =
+        $get_stmt->get_result();
+
+    if (
+        !$get_result ||
+        $get_result->num_rows === 0
+    ) {
+
+        $get_stmt->close();
+        $conn->close();
+
+        header("Location: support.php");
+        exit;
+    }
+
+    $existing_request =
+        $get_result->fetch_assoc();
+
+    $get_stmt->close();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Existing Values
+    |--------------------------------------------------------------------------
+    */
+
+    $user_phone =
+        trim(
+            $existing_request["user_phone"] ?? ""
+        );
+
+    $previous_reply =
+        trim(
+            $existing_request["admin_reply"] ?? ""
+        );
+
+    $previous_status =
+        trim(
+            $existing_request["status"] ?? ""
+        );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Detect Changes
+    |--------------------------------------------------------------------------
+    */
+
+    $isNewReply =
+        (
+            $admin_reply !== "" &&
+            $admin_reply !== $previous_reply
+        );
+
+    $isStatusChanged =
+        (
+            $status !== $previous_status
+        );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Update Support Request
+    |--------------------------------------------------------------------------
+    */
+
+    $sql = "
+        UPDATE support_requests
+        SET
+            admin_reply = ?,
+            status = ?
+        WHERE id = ?
+    ";
 
     $stmt = $conn->prepare($sql);
-
 
     if (!$stmt) {
 
         die("Database error.");
-
     }
-
 
     $stmt->bind_param(
         "ssi",
@@ -103,14 +197,220 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     /*
     |--------------------------------------------------------------------------
-    | Save Successful → Return to Support List
+    | Execute Update
     |--------------------------------------------------------------------------
     */
 
     if ($stmt->execute()) {
 
-        $stmt->close();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Notification
+        |--------------------------------------------------------------------------
+        */
+
+        $notificationSent = false;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Only notify when reply or status changed
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            (
+                $isNewReply ||
+                $isStatusChanged
+            )
+            &&
+            $user_phone !== ""
+        ) {
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Check Support Notification Preference
+            |--------------------------------------------------------------------------
+            */
+
+            $sendNotification = true;
+
+            $preference_sql = "
+                SELECT notification_support
+                FROM users
+                WHERE phone = ?
+                LIMIT 1
+            ";
+
+            $preference_stmt =
+                $conn->prepare(
+                    $preference_sql
+                );
+
+            if ($preference_stmt) {
+
+                $preference_stmt->bind_param(
+                    "s",
+                    $user_phone
+                );
+
+                if (
+                    $preference_stmt->execute()
+                ) {
+
+                    $preference_result =
+                        $preference_stmt->get_result();
+
+                    if (
+                        $preference_result &&
+                        $preference_result->num_rows > 0
+                    ) {
+
+                        $preference =
+                            $preference_result
+                                ->fetch_assoc();
+
+                        $sendNotification =
+                            (
+                                (int)(
+                                    $preference[
+                                        "notification_support"
+                                    ] ?? 1
+                                ) === 1
+                            );
+                    }
+                }
+
+                $preference_stmt->close();
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create Notification
+            |--------------------------------------------------------------------------
+            */
+
+            if ($sendNotification) {
+
+                /*
+                |------------------------------------------------------------------
+                | Reply + Status Changed
+                |------------------------------------------------------------------
+                */
+
+                if (
+                    $isNewReply &&
+                    $isStatusChanged
+                ) {
+
+                    $title =
+                        "Support Request Updated";
+
+                    $message =
+                        "Admin replied to your support request #" .
+                        $request_id .
+                        " and changed its status to " .
+                        ucwords($status) .
+                        ".";
+
+
+                /*
+                |------------------------------------------------------------------
+                | Only Reply Changed
+                |------------------------------------------------------------------
+                */
+
+                } elseif ($isNewReply) {
+
+                    $title =
+                        "Support Reply";
+
+                    $message =
+                        "Admin replied to your support request #" .
+                        $request_id .
+                        ".";
+
+
+                /*
+                |------------------------------------------------------------------
+                | Only Status Changed
+                |------------------------------------------------------------------
+                */
+
+                } else {
+
+                    $title =
+                        "Support Status Updated";
+
+                    $message =
+                        "Your support request #" .
+                        $request_id .
+                        " status is now " .
+                        ucwords($status) .
+                        ".";
+                }
+
+
+                $type =
+                    "support";
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Insert Notification
+                |--------------------------------------------------------------------------
+                */
+
+                $notification_sql = "
+                    INSERT INTO notifications
+                    (
+                        user_phone,
+                        title,
+                        message,
+                        type,
+                        is_read
+                    )
+                    VALUES (?, ?, ?, ?, 0)
+                ";
+
+                $notification_stmt =
+                    $conn->prepare(
+                        $notification_sql
+                    );
+
+                if ($notification_stmt) {
+
+                    $notification_stmt->bind_param(
+                        "ssss",
+                        $user_phone,
+                        $title,
+                        $message,
+                        $type
+                    );
+
+                    if (
+                        $notification_stmt->execute()
+                    ) {
+
+                        $notificationSent = true;
+                    }
+
+                    $notification_stmt->close();
+                }
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Close & Redirect
+        |--------------------------------------------------------------------------
+        */
+
+        $stmt->close();
         $conn->close();
 
         header(
@@ -118,13 +418,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         );
 
         exit;
-
     }
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | Update Failed
+    |--------------------------------------------------------------------------
+    */
+
     $stmt->close();
 
-    die("Unable to update support request.");
+    die(
+        "Unable to update support request."
+    );
 }
 
 
@@ -134,29 +441,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 |--------------------------------------------------------------------------
 */
 
-$sql = "SELECT
-            id,
-            user_phone,
-            booking_id,
-            category,
-            subject,
-            description,
-            status,
-            admin_reply,
-            created_at,
-            updated_at
-        FROM support_requests
-        WHERE id = ?
-        LIMIT 1";
-
+$sql = "
+    SELECT
+        id,
+        user_phone,
+        booking_id,
+        category,
+        subject,
+        description,
+        status,
+        admin_reply,
+        created_at,
+        updated_at
+    FROM support_requests
+    WHERE id = ?
+    LIMIT 1
+";
 
 $stmt = $conn->prepare($sql);
 
-
 if (!$stmt) {
+
     die("Database error.");
 }
-
 
 $stmt->bind_param(
     "i",
@@ -165,8 +472,8 @@ $stmt->bind_param(
 
 $stmt->execute();
 
-
-$result = $stmt->get_result();
+$result =
+    $stmt->get_result();
 
 
 /*
@@ -175,23 +482,29 @@ $result = $stmt->get_result();
 |--------------------------------------------------------------------------
 */
 
-if ($result->num_rows === 0) {
+if (
+    !$result ||
+    $result->num_rows === 0
+) {
 
     $stmt->close();
-
     $conn->close();
 
-    header("Location: support.php");
+    header(
+        "Location: support.php"
+    );
 
     exit;
 }
 
 
-$request = $result->fetch_assoc();
+$request =
+    $result->fetch_assoc();
 
 $stmt->close();
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -375,7 +688,6 @@ body {
 .back:hover {
 
     background: #4338ca;
-
 }
 
 
@@ -392,7 +704,12 @@ body {
     padding: 28px;
 
     box-shadow:
-        0 5px 20px rgba(0,0,0,0.06);
+        0 5px 20px rgba(
+            0,
+            0,
+            0,
+            0.06
+        );
 }
 
 
@@ -837,7 +1154,6 @@ textarea {
                     } else {
 
                         echo "Not linked";
-
                     }
 
                     ?>
