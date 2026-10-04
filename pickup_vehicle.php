@@ -34,7 +34,6 @@ if ($condition === '') {
 /*
  * Get booking information.
  */
-
 $sqlBooking = "
     SELECT
         b.id,
@@ -50,10 +49,7 @@ $sqlBooking = "
     LIMIT 1
 ";
 
-$stmtBooking = mysqli_prepare(
-    $conn,
-    $sqlBooking
-);
+$stmtBooking = mysqli_prepare($conn, $sqlBooking);
 
 if (!$stmtBooking) {
     echo json_encode([
@@ -69,22 +65,15 @@ mysqli_stmt_bind_param(
     $bookingId
 );
 
-mysqli_stmt_execute(
-    $stmtBooking
-);
+mysqli_stmt_execute($stmtBooking);
 
-$resultBooking = mysqli_stmt_get_result(
-    $stmtBooking
-);
+$resultBooking = mysqli_stmt_get_result($stmtBooking);
 
 if (
     !$resultBooking ||
     mysqli_num_rows($resultBooking) === 0
 ) {
-
-    mysqli_stmt_close(
-        $stmtBooking
-    );
+    mysqli_stmt_close($stmtBooking);
 
     echo json_encode([
         "success" => false,
@@ -94,23 +83,16 @@ if (
     exit();
 }
 
-$booking = mysqli_fetch_assoc(
-    $resultBooking
-);
+$booking = mysqli_fetch_assoc($resultBooking);
 
-mysqli_stmt_close(
-    $stmtBooking
-);
+mysqli_stmt_close($stmtBooking);
 
 
 /*
  * Pickup is allowed only for accepted bookings.
  */
-
 $currentStatus = strtolower(
-    trim(
-        $booking['status'] ?? ''
-    )
+    trim($booking['status'] ?? '')
 );
 
 if (
@@ -118,7 +100,6 @@ if (
     $currentStatus !== 'confirmed' &&
     $currentStatus !== 'approved'
 ) {
-
     echo json_encode([
         "success" => false,
         "message" =>
@@ -132,10 +113,7 @@ if (
 /*
  * Record pickup.
  */
-
-$pickupTime = date(
-    "Y-m-d H:i:s"
-);
+$pickupTime = date("Y-m-d H:i:s");
 
 $sqlUpdate = "
     UPDATE bookings
@@ -147,13 +125,9 @@ $sqlUpdate = "
     WHERE id = ?
 ";
 
-$stmtUpdate = mysqli_prepare(
-    $conn,
-    $sqlUpdate
-);
+$stmtUpdate = mysqli_prepare($conn, $sqlUpdate);
 
 if (!$stmtUpdate) {
-
     echo json_encode([
         "success" => false,
         "message" => "Database error"
@@ -171,10 +145,7 @@ mysqli_stmt_bind_param(
 );
 
 if (!mysqli_stmt_execute($stmtUpdate)) {
-
-    mysqli_stmt_close(
-        $stmtUpdate
-    );
+    mysqli_stmt_close($stmtUpdate);
 
     echo json_encode([
         "success" => false,
@@ -184,78 +155,133 @@ if (!mysqli_stmt_execute($stmtUpdate)) {
     exit();
 }
 
-mysqli_stmt_close(
-    $stmtUpdate
-);
+mysqli_stmt_close($stmtUpdate);
 
 
 /*
- * Notify renter.
+ * Check renter's Booking Updates notification preference.
+ *
+ * notification_booking = 1
+ *     -> create notification
+ *
+ * notification_booking = 0
+ *     -> do not create notification
+ *
+ * If the preference cannot be read, default to ON
+ * so existing notification behaviour is preserved.
  */
+$sendNotification = true;
 
-$title =
-    "Vehicle Picked Up";
-
-$message =
-    "Your " .
-    ($booking['vehicle_name'] ?? 'vehicle') .
-    " has been marked as picked up.";
-
-$type =
-    "booking";
-
-
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
+$sqlPreference = "
+    SELECT notification_booking
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
 ";
 
-$stmtNotification = mysqli_prepare(
+$stmtPreference = mysqli_prepare(
     $conn,
-    $sqlNotification
+    $sqlPreference
 );
 
-if ($stmtNotification) {
+if ($stmtPreference) {
 
-    $userPhone =
-        $booking['user_phone'];
+    $userPhone = $booking['user_phone'];
 
     mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $userPhone,
-        $title,
-        $message,
-        $type
+        $stmtPreference,
+        "s",
+        $userPhone
     );
 
-    mysqli_stmt_execute(
-        $stmtNotification
+    if (mysqli_stmt_execute($stmtPreference)) {
+
+        $resultPreference =
+            mysqli_stmt_get_result($stmtPreference);
+
+        if (
+            $resultPreference &&
+            mysqli_num_rows($resultPreference) > 0
+        ) {
+
+            $preference =
+                mysqli_fetch_assoc($resultPreference);
+
+            $sendNotification =
+                ((int)($preference['notification_booking'] ?? 1) === 1);
+        }
+    }
+
+    mysqli_stmt_close($stmtPreference);
+}
+
+
+/*
+ * Notify renter only when Booking Updates are enabled.
+ */
+$notificationSent = false;
+
+if ($sendNotification) {
+
+    $title = "Vehicle Picked Up";
+
+    $message =
+        "Your " .
+        ($booking['vehicle_name'] ?? 'vehicle') .
+        " has been marked as picked up.";
+
+    $type = "booking";
+
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
+
+    $stmtNotification = mysqli_prepare(
+        $conn,
+        $sqlNotification
     );
 
-    mysqli_stmt_close(
-        $stmtNotification
-    );
+    if ($stmtNotification) {
+
+        $userPhone =
+            $booking['user_phone'];
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $userPhone,
+            $title,
+            $message,
+            $type
+        );
+
+        if (mysqli_stmt_execute($stmtNotification)) {
+            $notificationSent = true;
+        }
+
+        mysqli_stmt_close($stmtNotification);
+    }
 }
 
 
 /*
  * Final response.
  */
-
 echo json_encode([
     "success" => true,
     "message" => "Vehicle pickup confirmed successfully",
     "booking_id" => $bookingId,
     "status" => "picked_up",
-    "pickup_time" => $pickupTime
+    "pickup_time" => $pickupTime,
+    "notification_sent" => $notificationSent
 ]);
 
 ?>
