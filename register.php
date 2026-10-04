@@ -323,61 +323,152 @@ if ($recoveryHash !== false) {
 
 
 /*
- * Create Welcome notification
+|--------------------------------------------------------------------------
+| CREATE GENERAL / WELCOME NOTIFICATION
+|--------------------------------------------------------------------------
+|
+| notification_general = 1
+| → Welcome notification is created
+|
+| notification_general = 0
+| → Welcome notification is not created
+|
+| New users normally have the database default value.
+| If the value cannot be read, notification remains ON.
+|
+*/
+
+$sendGeneralNotification = true;
+
+
+/*
+ * Read the newly registered user's
+ * general notification preference.
  */
 
-$title =
-    "Welcome to RentX";
-
-$message =
-    "Welcome " .
-    $name .
-    "! Your RentX account is ready. Start exploring vehicles or list your own vehicle.";
-
-$type =
-    "system";
-
-
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
+$sqlPreference = "
+    SELECT notification_general
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
 ";
 
 
-$stmtNotification =
+$stmtPreference =
     mysqli_prepare(
         $conn,
-        $sqlNotification
+        $sqlPreference
     );
 
 
-if ($stmtNotification) {
+if ($stmtPreference) {
 
     mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $phone,
-        $title,
-        $message,
-        $type
+        $stmtPreference,
+        "s",
+        $phone
     );
-
 
     mysqli_stmt_execute(
-        $stmtNotification
+        $stmtPreference
     );
+
+    $resultPreference =
+        mysqli_stmt_get_result(
+            $stmtPreference
+        );
+
+
+    if (
+        $resultPreference &&
+        mysqli_num_rows($resultPreference) > 0
+    ) {
+
+        $preference =
+            mysqli_fetch_assoc(
+                $resultPreference
+            );
+
+
+        $sendGeneralNotification =
+            (
+                (int)(
+                    $preference['notification_general']
+                    ?? 1
+                ) === 1
+            );
+    }
 
 
     mysqli_stmt_close(
-        $stmtNotification
+        $stmtPreference
     );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INSERT WELCOME NOTIFICATION
+|--------------------------------------------------------------------------
+*/
+
+if ($sendGeneralNotification) {
+
+    $title =
+        "Welcome to RentX";
+
+
+    $message =
+        "Welcome " .
+        $name .
+        "! Your RentX account is ready. Start exploring vehicles or list your own vehicle.";
+
+
+    $type =
+        "system";
+
+
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
+
+
+    $stmtNotification =
+        mysqli_prepare(
+            $conn,
+            $sqlNotification
+        );
+
+
+    if ($stmtNotification) {
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $phone,
+            $title,
+            $message,
+            $type
+        );
+
+
+        mysqli_stmt_execute(
+            $stmtNotification
+        );
+
+
+        mysqli_stmt_close(
+            $stmtNotification
+        );
+    }
 }
 
 
@@ -388,7 +479,8 @@ if ($stmtNotification) {
 echo json_encode([
     "status" => "success",
     "message" => "Registration Successful",
-    "recovery_code" => $recoveryCode
+    "recovery_code" => $recoveryCode,
+    "notification_sent" => $sendGeneralNotification
 ]);
 
 ?>
