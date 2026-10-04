@@ -69,7 +69,9 @@ if ($currentPassword === $newPassword) {
 $sql = "
     SELECT
         id,
-        password
+        name,
+        password,
+        notification_security
     FROM users
     WHERE phone = ?
     LIMIT 1
@@ -77,6 +79,7 @@ $sql = "
 
 
 $stmt = mysqli_prepare($conn, $sql);
+
 
 if (!$stmt) {
 
@@ -97,6 +100,7 @@ mysqli_stmt_bind_param(
 
 
 mysqli_stmt_execute($stmt);
+
 
 $result = mysqli_stmt_get_result($stmt);
 
@@ -234,13 +238,98 @@ mysqli_stmt_close($stmtUpdate);
 
 /*
 |--------------------------------------------------------------------------
+| CHECK SECURITY NOTIFICATION PREFERENCE
+|--------------------------------------------------------------------------
+|
+| notification_security = 1
+| → Security notification ON
+|
+| notification_security = 0
+| → Security notification OFF
+|
+| Default is ON if the preference is unavailable.
+|
+*/
+
+$sendNotification = true;
+
+
+if (
+    isset($user['notification_security'])
+) {
+
+    $sendNotification =
+        ((int)$user['notification_security'] === 1);
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| CREATE SECURITY NOTIFICATION
+|--------------------------------------------------------------------------
+*/
+
+if ($sendNotification) {
+
+    $title = "Password Changed";
+
+    $message =
+        "Your RentX account password was changed successfully.";
+
+    $type = "security";
+
+
+    $sqlNotification = "
+        INSERT INTO notifications
+        (
+            user_phone,
+            title,
+            message,
+            type,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+    ";
+
+
+    $stmtNotification = mysqli_prepare(
+        $conn,
+        $sqlNotification
+    );
+
+
+    if ($stmtNotification) {
+
+        mysqli_stmt_bind_param(
+            $stmtNotification,
+            "ssss",
+            $phone,
+            $title,
+            $message,
+            $type
+        );
+
+        mysqli_stmt_execute(
+            $stmtNotification
+        );
+
+        mysqli_stmt_close(
+            $stmtNotification
+        );
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
 | SUCCESS
 |--------------------------------------------------------------------------
 */
 
 echo json_encode([
     "status" => "success",
-    "message" => "Password changed successfully"
+    "message" => "Password changed successfully",
+    "notification_sent" => $sendNotification
 ]);
 
 ?>
