@@ -5,45 +5,46 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-// =====================================================
-// READ REQUEST DATA
-// =====================================================
 
-$requestId = intval($_POST['request_id'] ?? 0);
+// =========================================================
+// INPUT
+// =========================================================
+
+$requestId = intval(
+    $_POST['request_id'] ?? 0
+);
 
 $ownerPhone = trim(
     $_POST['owner_phone'] ?? ''
 );
 
-$status = strtolower(
-    trim($_POST['status'] ?? '')
+$newStatus = trim(
+    $_POST['status'] ?? ''
 );
 
 
-// =====================================================
+// =========================================================
 // VALIDATION
-// =====================================================
+// =========================================================
 
-if ($requestId <= 0) {
+if (
+    $requestId <= 0 ||
+    $ownerPhone === '' ||
+    $newStatus === ''
+) {
+
     echo json_encode([
         "success" => false,
-        "message" => "Invalid request ID"
+        "message" => "Request ID, owner phone and status are required"
     ]);
+
     exit();
 }
 
-if ($ownerPhone === '') {
-    echo json_encode([
-        "success" => false,
-        "message" => "Owner phone is required"
-    ]);
-    exit();
-}
 
-
-// =====================================================
-// ALLOWED STATUS VALUES
-// =====================================================
+// =========================================================
+// ALLOWED STATUSES
+// =========================================================
 
 $allowedStatuses = [
     "accepted",
@@ -53,7 +54,7 @@ $allowedStatuses = [
     "delivered"
 ];
 
-if (!in_array($status, $allowedStatuses, true)) {
+if (!in_array($newStatus, $allowedStatuses, true)) {
 
     echo json_encode([
         "success" => false,
@@ -64,9 +65,9 @@ if (!in_array($status, $allowedStatuses, true)) {
 }
 
 
-// =====================================================
-// GET CURRENT REQUEST
-// =====================================================
+// =========================================================
+// GET REQUEST
+// =========================================================
 
 $sql = "
     SELECT
@@ -77,13 +78,18 @@ $sql = "
         vehicle_name,
         pickup,
         drop_location,
+        goods,
         status
     FROM transport_requests
     WHERE id = ?
+      AND owner_phone = ?
     LIMIT 1
 ";
 
-$stmt = mysqli_prepare($conn, $sql);
+$stmt = mysqli_prepare(
+    $conn,
+    $sql
+);
 
 if (!$stmt) {
 
@@ -95,24 +101,36 @@ if (!$stmt) {
     exit();
 }
 
+
 mysqli_stmt_bind_param(
     $stmt,
-    "i",
-    $requestId
+    "is",
+    $requestId,
+    $ownerPhone
 );
 
-mysqli_stmt_execute($stmt);
 
-$result = mysqli_stmt_get_result($stmt);
+if (!mysqli_stmt_execute($stmt)) {
 
-$request = mysqli_fetch_assoc($result);
+    mysqli_stmt_close($stmt);
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Unable to verify transport request"
+    ]);
+
+    exit();
+}
+
+
+$result =
+    mysqli_stmt_get_result($stmt);
+
+$request =
+    mysqli_fetch_assoc($result);
 
 mysqli_stmt_close($stmt);
 
-
-// =====================================================
-// REQUEST NOT FOUND
-// =====================================================
 
 if (!$request) {
 
@@ -125,94 +143,71 @@ if (!$request) {
 }
 
 
-// =====================================================
-// VERIFY OWNER
-// =====================================================
-
-if (
-    trim($request['owner_phone']) !==
-    $ownerPhone
-) {
-
-    echo json_encode([
-        "success" => false,
-        "message" =>
-            "You are not authorized to update this request"
-    ]);
-
-    exit();
-}
-
-
-// =====================================================
+// =========================================================
 // CURRENT STATUS
-// =====================================================
+// =========================================================
 
-$currentStatus = strtolower(
-    trim($request['status'] ?? '')
-);
+$currentStatus =
+    strtolower(
+        trim(
+            $request['status'] ?? 'pending'
+        )
+    );
 
 
-// =====================================================
-// STATUS TRANSITION VALIDATION
-// =====================================================
+// =========================================================
+// VALID STATUS FLOW
+// =========================================================
 
 $validTransition = false;
 
 
-// PENDING → ACCEPTED / REJECTED
-
-if ($currentStatus === "pending") {
-
-    if (
-        $status === "accepted" ||
-        $status === "rejected"
-    ) {
-        $validTransition = true;
-    }
-}
-
-
-// ACCEPTED → PICKUP
-
-elseif ($currentStatus === "accepted") {
-
-    if ($status === "pickup") {
-        $validTransition = true;
-    }
-}
-
-
-// PICKUP → IN TRANSIT
-
-elseif ($currentStatus === "pickup") {
-
-    if ($status === "in_transit") {
-        $validTransition = true;
-    }
-}
-
-
-// IN TRANSIT → DELIVERED
-
-elseif ($currentStatus === "in_transit") {
-
-    if ($status === "delivered") {
-        $validTransition = true;
-    }
-}
-
-
-// ALREADY FINAL
-
-elseif (
-    $currentStatus === "rejected" ||
-    $currentStatus === "delivered"
+// pending → accepted / rejected
+if (
+    $currentStatus === "pending" &&
+    (
+        $newStatus === "accepted" ||
+        $newStatus === "rejected"
+    )
 ) {
 
-    $validTransition = false;
+    $validTransition = true;
 }
 
+
+// accepted → pickup
+if (
+    $currentStatus === "accepted" &&
+    $newStatus === "pickup"
+) {
+
+    $validTransition = true;
+}
+
+
+// pickup → in_transit
+if (
+    $currentStatus === "pickup" &&
+    $newStatus === "in_transit"
+) {
+
+    $validTransition = true;
+}
+
+
+// in_transit → delivered
+if (
+    $currentStatus === "in_transit" &&
+    $newStatus === "delivered"
+) {
+
+    $validTransition = true;
+}
+
+
+// =========================================================
+// CHECK TRANSITION
+// =========================================================
 
 if (!$validTransition) {
 
@@ -222,16 +217,16 @@ if (!$validTransition) {
             "Invalid status transition: " .
             $currentStatus .
             " → " .
-            $status
+            $newStatus
     ]);
 
     exit();
 }
 
 
-// =====================================================
+// =========================================================
 // UPDATE STATUS
-// =====================================================
+// =========================================================
 
 $updateSql = "
     UPDATE transport_requests
@@ -243,10 +238,11 @@ $updateSql = "
     LIMIT 1
 ";
 
-$updateStmt = mysqli_prepare(
-    $conn,
-    $updateSql
-);
+$updateStmt =
+    mysqli_prepare(
+        $conn,
+        $updateSql
+    );
 
 if (!$updateStmt) {
 
@@ -258,119 +254,64 @@ if (!$updateStmt) {
     exit();
 }
 
+
 mysqli_stmt_bind_param(
     $updateStmt,
     "sis",
-    $status,
+    $newStatus,
     $requestId,
     $ownerPhone
 );
 
-$updated = mysqli_stmt_execute(
-    $updateStmt
-);
 
-mysqli_stmt_close($updateStmt);
+if (!mysqli_stmt_execute($updateStmt)) {
 
-
-if (!$updated) {
+    mysqli_stmt_close($updateStmt);
 
     echo json_encode([
         "success" => false,
-        "message" =>
-            "Failed to update transport request"
+        "message" => "Unable to update transport request"
     ]);
 
     exit();
 }
 
 
-// =====================================================
-// CUSTOMER DETAILS
-// =====================================================
+mysqli_stmt_close($updateStmt);
+
+
+// =========================================================
+// NOTIFICATION PREFERENCE
+// =========================================================
 
 $requesterPhone =
-    trim($request['requester_phone']);
+    $request['requester_phone'];
 
 $vehicleName =
-    trim($request['vehicle_name']);
+    $request['vehicle_name'];
 
 $pickup =
-    trim($request['pickup']);
+    $request['pickup'];
 
 $dropLocation =
-    trim($request['drop_location']);
+    $request['drop_location'];
 
 
-// =====================================================
-// CHECK CUSTOMER NOTIFICATION PREFERENCE
-// =====================================================
-
-$sendNotification = true;
-
-$preferenceSql = "
-    SELECT notification_booking
-    FROM users
-    WHERE phone = ?
-    LIMIT 1
-";
-
-$preferenceStmt = mysqli_prepare(
-    $conn,
-    $preferenceSql
-);
-
-if ($preferenceStmt) {
-
-    mysqli_stmt_bind_param(
-        $preferenceStmt,
-        "s",
-        $requesterPhone
-    );
-
-    mysqli_stmt_execute(
-        $preferenceStmt
-    );
-
-    $preferenceResult =
-        mysqli_stmt_get_result(
-            $preferenceStmt
-        );
-
-    $user =
-        mysqli_fetch_assoc(
-            $preferenceResult
-        );
-
-    if ($user) {
-
-        $sendNotification =
-            intval(
-                $user['notification_booking']
-            ) === 1;
-    }
-
-    mysqli_stmt_close(
-        $preferenceStmt
-    );
-}
-
-
-// =====================================================
+// =========================================================
 // NOTIFICATION CONTENT
-// =====================================================
+// =========================================================
 
-$notificationTitle = "";
-$notificationMessage = "";
+$title = "";
+$message = "";
 
-switch ($status) {
+switch ($newStatus) {
 
     case "accepted":
 
-        $notificationTitle =
+        $title =
             "Transport Request Accepted";
 
-        $notificationMessage =
+        $message =
             "Your transport request for " .
             $vehicleName .
             " from " .
@@ -382,63 +323,12 @@ switch ($status) {
         break;
 
 
-    case "pickup":
-
-        $notificationTitle =
-            "Transport Pickup Started";
-
-        $notificationMessage =
-            "Pickup for your " .
-            $vehicleName .
-            " transport request from " .
-            $pickup .
-            " to " .
-            $dropLocation .
-            " has started.";
-
-        break;
-
-
-    case "in_transit":
-
-        $notificationTitle =
-            "Transport In Transit";
-
-        $notificationMessage =
-            "Your " .
-            $vehicleName .
-            " transport from " .
-            $pickup .
-            " to " .
-            $dropLocation .
-            " is now in transit.";
-
-        break;
-
-
-    case "delivered":
-
-        $notificationTitle =
-            "Transport Delivered";
-
-        $notificationMessage =
-            "Your " .
-            $vehicleName .
-            " transport request from " .
-            $pickup .
-            " to " .
-            $dropLocation .
-            " has been delivered.";
-
-        break;
-
-
     case "rejected":
 
-        $notificationTitle =
+        $title =
             "Transport Request Rejected";
 
-        $notificationMessage =
+        $message =
             "Your transport request for " .
             $vehicleName .
             " from " .
@@ -448,20 +338,111 @@ switch ($status) {
             " has been rejected.";
 
         break;
+
+
+    case "pickup":
+
+        $title =
+            "Transport Pickup Started";
+
+        $message =
+            "Pickup for your " .
+            $vehicleName .
+            " transport request has started.";
+
+        break;
+
+
+    case "in_transit":
+
+        $title =
+            "Goods In Transit";
+
+        $message =
+            "Your goods are now in transit from " .
+            $pickup .
+            " to " .
+            $dropLocation .
+            ".";
+
+        break;
+
+
+    case "delivered":
+
+        $title =
+            "Goods Delivered";
+
+        $message =
+            "Your goods have been delivered successfully.";
+
+        break;
 }
 
 
-// =====================================================
-// INSERT CUSTOMER NOTIFICATION
-// =====================================================
+// =========================================================
+// CHECK CUSTOMER NOTIFICATION SETTING
+// =========================================================
+
+$notificationEnabled = true;
+
+$prefSql = "
+    SELECT notification_booking
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
+";
+
+$prefStmt =
+    mysqli_prepare(
+        $conn,
+        $prefSql
+    );
+
+if ($prefStmt) {
+
+    mysqli_stmt_bind_param(
+        $prefStmt,
+        "s",
+        $requesterPhone
+    );
+
+    if (mysqli_stmt_execute($prefStmt)) {
+
+        $prefResult =
+            mysqli_stmt_get_result(
+                $prefStmt
+            );
+
+        $pref =
+            mysqli_fetch_assoc(
+                $prefResult
+            );
+
+        if ($pref) {
+
+            $notificationEnabled =
+                intval(
+                    $pref['notification_booking']
+                ) === 1;
+        }
+    }
+
+    mysqli_stmt_close(
+        $prefStmt
+    );
+}
+
+
+// =========================================================
+// CREATE NOTIFICATION
+// =========================================================
 
 if (
-    $sendNotification &&
-    $requesterPhone !== ''
+    $notificationEnabled &&
+    $title !== '' &&
+    $message !== ''
 ) {
-
-    $notificationType =
-        "booking";
 
     $notificationSql = "
         INSERT INTO notifications
@@ -474,7 +455,14 @@ if (
             created_at
         )
         VALUES
-        (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+        (
+            ?,
+            ?,
+            ?,
+            'booking',
+            0,
+            CURRENT_TIMESTAMP
+        )
     ";
 
     $notificationStmt =
@@ -487,11 +475,10 @@ if (
 
         mysqli_stmt_bind_param(
             $notificationStmt,
-            "ssss",
+            "sss",
             $requesterPhone,
-            $notificationTitle,
-            $notificationMessage,
-            $notificationType
+            $title,
+            $message
         );
 
         mysqli_stmt_execute(
@@ -505,16 +492,54 @@ if (
 }
 
 
-// =====================================================
-// SUCCESS RESPONSE
-// =====================================================
+// =========================================================
+// SUCCESS MESSAGE
+// =========================================================
+
+$responseMessage = "";
+
+switch ($newStatus) {
+
+    case "accepted":
+        $responseMessage =
+            "Transport request accepted";
+        break;
+
+    case "rejected":
+        $responseMessage =
+            "Transport request rejected";
+        break;
+
+    case "pickup":
+        $responseMessage =
+            "Pickup started";
+        break;
+
+    case "in_transit":
+        $responseMessage =
+            "Transport is now in transit";
+        break;
+
+    case "delivered":
+        $responseMessage =
+            "Transport marked as delivered";
+        break;
+
+    default:
+        $responseMessage =
+            "Transport request updated";
+}
+
+
+// =========================================================
+// FINAL RESPONSE
+// =========================================================
 
 echo json_encode([
     "success" => true,
-    "message" => "Transport request status updated",
+    "message" => $responseMessage,
     "request_id" => $requestId,
-    "old_status" => $currentStatus,
-    "status" => $status
+    "status" => $newStatus
 ]);
 
 ?>
