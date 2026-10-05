@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         "message" => "Only POST requests are allowed"
     ]);
 
-    exit();
+    exit;
 }
 
 
@@ -30,7 +30,7 @@ if (!isset($_FILES['vehicle_image'])) {
         "message" => "Vehicle image is required"
     ]);
 
-    exit();
+    exit;
 }
 
 
@@ -49,13 +49,13 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
         "upload_error" => $file['error']
     ]);
 
-    exit();
+    exit;
 }
 
 
 // =====================================================
 // CHECK FILE SIZE
-// Maximum 10 MB
+// MAX 10 MB
 // =====================================================
 
 $maxSize = 10 * 1024 * 1024;
@@ -67,12 +67,12 @@ if ($file['size'] > $maxSize) {
         "message" => "Image size must be 10 MB or less"
     ]);
 
-    exit();
+    exit;
 }
 
 
 // =====================================================
-// CHECK IMAGE MIME TYPE
+// CHECK MIME TYPE
 // =====================================================
 
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -99,21 +99,22 @@ if (!in_array($mimeType, $allowedTypes, true)) {
         "message" => "Only JPG, PNG and WEBP images are allowed"
     ]);
 
-    exit();
+    exit;
 }
 
 
 // =====================================================
-// GET CLOUDINARY VARIABLES
-// From Railway Environment Variables
+// CLOUDINARY ENVIRONMENT VARIABLES
 // =====================================================
 
 $cloudName = getenv("CLOUDINARY_CLOUD_NAME");
-
 $apiKey = getenv("CLOUDINARY_API_KEY");
-
 $apiSecret = getenv("CLOUDINARY_API_SECRET");
 
+
+// =====================================================
+// CHECK CLOUDINARY CONFIGURATION
+// =====================================================
 
 if (
     empty($cloudName) ||
@@ -126,7 +127,7 @@ if (
         "message" => "Cloudinary configuration is missing"
     ]);
 
-    exit();
+    exit;
 }
 
 
@@ -148,11 +149,10 @@ $cloudinaryUrl =
 
 
 // =====================================================
-// PREPARE UPLOAD DATA
+// FILE DATA
 // =====================================================
 
 $postFields = [
-
     "file" => new CURLFile(
         $file['tmp_name'],
         $mimeType,
@@ -164,18 +164,22 @@ $postFields = [
 
 
 // =====================================================
-// CREATE CURL REQUEST
+// CURL
 // =====================================================
 
-$ch = curl_init($cloudinaryUrl);
+$ch = curl_init();
 
+curl_setopt(
+    $ch,
+    CURLOPT_URL,
+    $cloudinaryUrl
+);
 
 curl_setopt(
     $ch,
     CURLOPT_POST,
     true
 );
-
 
 curl_setopt(
     $ch,
@@ -185,8 +189,11 @@ curl_setopt(
 
 
 // =====================================================
-// CLOUDINARY BASIC AUTHENTICATION
-// API KEY : API SECRET
+// IMPORTANT
+// CLOUDINARY BASIC AUTH
+//
+// NO SIGNATURE
+// NO TIMESTAMP
 // =====================================================
 
 curl_setopt(
@@ -206,13 +213,11 @@ curl_setopt(
     true
 );
 
-
 curl_setopt(
     $ch,
     CURLOPT_TIMEOUT,
     60
 );
-
 
 curl_setopt(
     $ch,
@@ -222,26 +227,23 @@ curl_setopt(
 
 
 // =====================================================
-// EXECUTE CLOUDINARY UPLOAD
+// EXECUTE
 // =====================================================
 
 $response = curl_exec($ch);
 
-
 $curlError = curl_error($ch);
-
 
 $httpCode = curl_getinfo(
     $ch,
     CURLINFO_HTTP_CODE
 );
 
-
 curl_close($ch);
 
 
 // =====================================================
-// CURL ERROR
+// CURL CONNECTION ERROR
 // =====================================================
 
 if ($response === false || !empty($curlError)) {
@@ -252,7 +254,7 @@ if ($response === false || !empty($curlError)) {
         "error" => $curlError
     ]);
 
-    exit();
+    exit;
 }
 
 
@@ -267,7 +269,7 @@ $cloudinaryData = json_decode(
 
 
 // =====================================================
-// CHECK CLOUDINARY RESPONSE
+// CLOUDINARY ERROR
 // =====================================================
 
 if (
@@ -283,29 +285,19 @@ if (
         "cloudinary_response" => $cloudinaryData
     ]);
 
-    exit();
+    exit;
 }
 
 
 // =====================================================
-// GET IMAGE URL
+// SUCCESS DATA
 // =====================================================
 
 $imageUrl =
     $cloudinaryData['secure_url'];
 
-
-// =====================================================
-// GET CLOUDINARY PUBLIC ID
-// =====================================================
-
 $publicId =
     $cloudinaryData['public_id'] ?? "";
-
-
-// =====================================================
-// GET IMAGE INFORMATION
-// =====================================================
 
 $width =
     $cloudinaryData['width'] ?? 0;
