@@ -691,62 +691,37 @@ mysqli_stmt_bind_param(
 
     $stmt,
 
-    "ssssssdddsdsdisssiddddd",
+    "ssssssdddssdisssidsdddd",
 
     $ownerPhone,
-
     $vehicleName,
-
     $vehicleType,
-
     $serviceType,
-
     $listingType,
-
     $vehicleImage,
 
-
     $pricePerDay,
-
     $price6hr,
-
     $price12hr,
 
-
     $sellingPrice,
-
     $vehicleCondition,
-
     $manufacturingYear,
-
     $kilometersDriven,
-
     $ownership,
 
-
     $city,
-
     $address,
 
-
     $quantity,
-
     $deposit,
 
-
     $transportBaseFare,
-
     $transportMinimumFare,
-
     $transportPerKm,
-
     $transportDriverCharge,
-
     $transportWaitingCharge
-
 );
-
-
 // =====================================================
 // EXECUTE INSERT
 // =====================================================
