@@ -11,21 +11,95 @@ header("Content-Type: application/json; charset=UTF-8");
 // =====================================================
 
 $ownerPhone = trim($_POST['owner_phone'] ?? '');
+
 $vehicleName = trim($_POST['vehicle_name'] ?? '');
+
 $vehicleType = trim($_POST['vehicle_type'] ?? '');
-$serviceType = trim($_POST['service_type'] ?? 'Self Drive');
 
-$pricePerDay = trim($_POST['price_per_day'] ?? '');
-$price6hr = trim($_POST['price_6hr'] ?? '0');
-$price12hr = trim($_POST['price_12hr'] ?? '0');
+$serviceType = trim(
+    $_POST['service_type'] ?? 'Self Drive'
+);
 
-$city = trim($_POST['city'] ?? '');
-$address = trim($_POST['address'] ?? '');
 
-$quantity = trim($_POST['quantity'] ?? '');
-$deposit = trim($_POST['deposit'] ?? '');
+// =====================================================
+// MARKETPLACE / LISTING TYPE
+// =====================================================
 
-$vehicleImage = trim($_POST['vehicle_image'] ?? '');
+$listingType = trim(
+    $_POST['listing_type'] ?? 'Rent'
+);
+
+$sellingPrice = trim(
+    $_POST['selling_price'] ?? '0'
+);
+
+$vehicleCondition = trim(
+    $_POST['vehicle_condition'] ?? ''
+);
+
+$manufacturingYear = trim(
+    $_POST['manufacturing_year'] ?? '0'
+);
+
+$kilometersDriven = trim(
+    $_POST['kilometers_driven'] ?? '0'
+);
+
+$ownership = trim(
+    $_POST['ownership'] ?? ''
+);
+
+
+// =====================================================
+// RENTAL PRICING
+// =====================================================
+
+$pricePerDay = trim(
+    $_POST['price_per_day'] ?? ''
+);
+
+$price6hr = trim(
+    $_POST['price_6hr'] ?? '0'
+);
+
+$price12hr = trim(
+    $_POST['price_12hr'] ?? '0'
+);
+
+
+// =====================================================
+// LOCATION
+// =====================================================
+
+$city = trim(
+    $_POST['city'] ?? ''
+);
+
+$address = trim(
+    $_POST['address'] ?? ''
+);
+
+
+// =====================================================
+// QUANTITY / DEPOSIT
+// =====================================================
+
+$quantity = trim(
+    $_POST['quantity'] ?? ''
+);
+
+$deposit = trim(
+    $_POST['deposit'] ?? '0'
+);
+
+
+// =====================================================
+// VEHICLE IMAGE
+// =====================================================
+
+$vehicleImage = trim(
+    $_POST['vehicle_image'] ?? ''
+);
 
 
 // =====================================================
@@ -33,19 +107,29 @@ $vehicleImage = trim($_POST['vehicle_image'] ?? '');
 // =====================================================
 
 $transportBaseFare =
-    trim($_POST['transport_base_fare'] ?? '0');
+    trim(
+        $_POST['transport_base_fare'] ?? '0'
+    );
 
 $transportMinimumFare =
-    trim($_POST['transport_minimum_fare'] ?? '0');
+    trim(
+        $_POST['transport_minimum_fare'] ?? '0'
+    );
 
 $transportPerKm =
-    trim($_POST['transport_per_km'] ?? '0');
+    trim(
+        $_POST['transport_per_km'] ?? '0'
+    );
 
 $transportDriverCharge =
-    trim($_POST['transport_driver_charge'] ?? '0');
+    trim(
+        $_POST['transport_driver_charge'] ?? '0'
+    );
 
 $transportWaitingCharge =
-    trim($_POST['transport_waiting_charge'] ?? '0');
+    trim(
+        $_POST['transport_waiting_charge'] ?? '0'
+    );
 
 
 // =====================================================
@@ -57,6 +141,7 @@ if (
     $vehicleName === '' ||
     $vehicleType === '' ||
     $serviceType === '' ||
+    $listingType === '' ||
     $pricePerDay === '' ||
     $city === '' ||
     $quantity === ''
@@ -72,10 +157,37 @@ if (
 
 
 // =====================================================
+// VALIDATE LISTING TYPE
+// =====================================================
+
+$allowedListingTypes = [
+
+    "Rent",
+    "Sell",
+    "Rent + Sell"
+];
+
+if (!in_array(
+    $listingType,
+    $allowedListingTypes,
+    true
+)) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid listing type"
+    ]);
+
+    exit();
+}
+
+
+// =====================================================
 // VALIDATE SERVICE TYPE
 // =====================================================
 
 $allowedServiceTypes = [
+
     "Self Drive",
     "With Driver",
     "Goods Transportation",
@@ -122,13 +234,20 @@ if (
 // CONVERT NORMAL VALUES
 // =====================================================
 
-$pricePerDay = (float)$pricePerDay;
-$price6hr = (float)$price6hr;
-$price12hr = (float)$price12hr;
+$pricePerDay =
+    (float)$pricePerDay;
 
-$quantity = (int)$quantity;
+$price6hr =
+    (float)$price6hr;
 
-$deposit = (float)$deposit;
+$price12hr =
+    (float)$price12hr;
+
+$quantity =
+    (int)$quantity;
+
+$deposit =
+    (float)$deposit;
 
 
 // =====================================================
@@ -147,12 +266,213 @@ if ($quantity <= 0) {
 
 
 // =====================================================
+// PREVENT NEGATIVE NORMAL VALUES
+// =====================================================
+
+if (
+    $pricePerDay < 0 ||
+    $price6hr < 0 ||
+    $price12hr < 0 ||
+    $deposit < 0
+) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Vehicle prices cannot be negative"
+    ]);
+
+    exit();
+}
+
+
+// =====================================================
+// MARKETPLACE SELLING VALIDATION
+// =====================================================
+
+if (
+    $listingType === "Sell" ||
+    $listingType === "Rent + Sell"
+) {
+
+    // -------------------------------------------------
+    // Selling Price
+    // -------------------------------------------------
+
+    if (
+        $sellingPrice === '' ||
+        !is_numeric($sellingPrice)
+    ) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Valid selling price is required"
+        ]);
+
+        exit();
+    }
+
+    $sellingPrice =
+        (float)$sellingPrice;
+
+
+    if ($sellingPrice <= 0) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Selling price must be greater than 0"
+        ]);
+
+        exit();
+    }
+
+
+    // -------------------------------------------------
+    // Condition
+    // -------------------------------------------------
+
+    $allowedConditions = [
+
+        "New",
+        "Used"
+    ];
+
+    if (!in_array(
+        $vehicleCondition,
+        $allowedConditions,
+        true
+    )) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Invalid vehicle condition"
+        ]);
+
+        exit();
+    }
+
+
+    // -------------------------------------------------
+    // Manufacturing Year
+    // -------------------------------------------------
+
+    if (
+        $manufacturingYear === '' ||
+        !is_numeric($manufacturingYear)
+    ) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Valid manufacturing year is required"
+        ]);
+
+        exit();
+    }
+
+    $manufacturingYear =
+        (int)$manufacturingYear;
+
+
+    if (
+        $manufacturingYear < 1900 ||
+        $manufacturingYear > 2100
+    ) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Invalid manufacturing year"
+        ]);
+
+        exit();
+    }
+
+
+    // -------------------------------------------------
+    // Kilometers Driven
+    // -------------------------------------------------
+
+    if (
+        $kilometersDriven === '' ||
+        !is_numeric($kilometersDriven)
+    ) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Valid kilometers driven is required"
+        ]);
+
+        exit();
+    }
+
+    $kilometersDriven =
+        (int)$kilometersDriven;
+
+
+    if ($kilometersDriven < 0) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Kilometers cannot be negative"
+        ]);
+
+        exit();
+    }
+
+
+    // -------------------------------------------------
+    // Ownership
+    // -------------------------------------------------
+
+    $allowedOwnership = [
+
+        "1st Owner",
+        "2nd Owner",
+        "3rd Owner",
+        "4th Owner+"
+    ];
+
+    if (!in_array(
+        $ownership,
+        $allowedOwnership,
+        true
+    )) {
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "Invalid ownership"
+        ]);
+
+        exit();
+    }
+
+} else {
+
+    // =================================================
+    // RENT ONLY
+    // =================================================
+
+    $sellingPrice = 0;
+
+    $vehicleCondition = '';
+
+    $manufacturingYear = 0;
+
+    $kilometersDriven = 0;
+
+    $ownership = '';
+}
+
+
+// =====================================================
 // VALIDATE TRANSPORT PRICING
 // =====================================================
 
-if ($serviceType === "Goods Transportation") {
+if (
+    $serviceType === "Goods Transportation"
+) {
 
+    // -------------------------------------------------
     // Required transport values
+    // -------------------------------------------------
 
     if (
         $transportBaseFare === '' ||
@@ -170,7 +490,9 @@ if ($serviceType === "Goods Transportation") {
     }
 
 
+    // -------------------------------------------------
     // Numeric validation
+    // -------------------------------------------------
 
     if (
         !is_numeric($transportBaseFare) ||
@@ -189,7 +511,9 @@ if ($serviceType === "Goods Transportation") {
     }
 
 
-    // Convert to decimal
+    // -------------------------------------------------
+    // Convert values
+    // -------------------------------------------------
 
     $transportBaseFare =
         (float)$transportBaseFare;
@@ -207,7 +531,9 @@ if ($serviceType === "Goods Transportation") {
         (float)$transportWaitingCharge;
 
 
+    // -------------------------------------------------
     // Prevent negative values
+    // -------------------------------------------------
 
     if (
         $transportBaseFare < 0 ||
@@ -232,9 +558,13 @@ if ($serviceType === "Goods Transportation") {
     // =================================================
 
     $transportBaseFare = 0;
+
     $transportMinimumFare = 0;
+
     $transportPerKm = 0;
+
     $transportDriverCharge = 0;
+
     $transportWaitingCharge = 0;
 }
 
@@ -244,45 +574,86 @@ if ($serviceType === "Goods Transportation") {
 // =====================================================
 
 $sql = "
+
     INSERT INTO vehicles
     (
+
         owner_phone,
+
         vehicle_name,
+
         vehicle_type,
+
         service_type,
+
+        listing_type,
+
         vehicle_image,
 
+
         price_per_day,
+
         price_6hr,
+
         price_12hr,
 
+
+        selling_price,
+
+        vehicle_condition,
+
+        manufacturing_year,
+
+        kilometers_driven,
+
+        ownership,
+
+
         city,
+
         address,
 
+
         quantity,
+
         deposit,
 
+
         transport_base_fare,
+
         transport_minimum_fare,
+
         transport_per_km,
+
         transport_driver_charge,
+
         transport_waiting_charge
+
     )
 
     VALUES
     (
-        ?, ?, ?, ?, ?,
+
+        ?, ?, ?, ?, ?, ?,
 
         ?, ?, ?,
+
+        ?, ?, ?, ?, ?,
 
         ?, ?,
 
         ?, ?,
 
         ?, ?, ?, ?, ?
+
     )
+
 ";
 
+
+// =====================================================
+// PREPARE STATEMENT
+// =====================================================
 
 $stmt = mysqli_prepare(
     $conn,
@@ -290,16 +661,16 @@ $stmt = mysqli_prepare(
 );
 
 
-// =====================================================
-// CHECK PREPARED STATEMENT
-// =====================================================
-
 if (!$stmt) {
 
     echo json_encode([
+
         "status" => "error",
+
         "message" => "Database error",
+
         "error" => mysqli_error($conn)
+
     ]);
 
     exit();
@@ -308,38 +679,71 @@ if (!$stmt) {
 
 // =====================================================
 // BIND PARAMETERS
+// =====================================================
 //
 // s = string
 // d = decimal
 // i = integer
+//
 // =====================================================
 
 mysqli_stmt_bind_param(
+
     $stmt,
 
-    "ssssssdddssdddddd",
+    "ssssssdddsdsdisssiddddd",
 
     $ownerPhone,
+
     $vehicleName,
+
     $vehicleType,
+
     $serviceType,
+
+    $listingType,
+
     $vehicleImage,
 
+
     $pricePerDay,
+
     $price6hr,
+
     $price12hr,
 
+
+    $sellingPrice,
+
+    $vehicleCondition,
+
+    $manufacturingYear,
+
+    $kilometersDriven,
+
+    $ownership,
+
+
     $city,
+
     $address,
 
+
     $quantity,
+
     $deposit,
 
+
     $transportBaseFare,
+
     $transportMinimumFare,
+
     $transportPerKm,
+
     $transportDriverCharge,
+
     $transportWaitingCharge
+
 );
 
 
@@ -355,9 +759,13 @@ if (!mysqli_stmt_execute($stmt)) {
     mysqli_stmt_close($stmt);
 
     echo json_encode([
+
         "status" => "error",
+
         "message" => "Unable to add vehicle",
+
         "error" => $error
+
     ]);
 
     exit();
@@ -396,18 +804,26 @@ $type =
 
 $notificationEnabled = true;
 
+
 $preferenceSql = "
+
     SELECT notification_general
+
     FROM users
+
     WHERE phone = ?
+
     LIMIT 1
+
 ";
+
 
 $preferenceStmt =
     mysqli_prepare(
         $conn,
         $preferenceSql
     );
+
 
 if ($preferenceStmt) {
 
@@ -417,14 +833,17 @@ if ($preferenceStmt) {
         $ownerPhone
     );
 
+
     mysqli_stmt_execute(
         $preferenceStmt
     );
+
 
     $preferenceResult =
         mysqli_stmt_get_result(
             $preferenceStmt
         );
+
 
     if ($preferenceResult) {
 
@@ -432,6 +851,7 @@ if ($preferenceStmt) {
             mysqli_fetch_assoc(
                 $preferenceResult
             );
+
 
         if ($preferenceRow !== null) {
 
@@ -443,6 +863,7 @@ if ($preferenceStmt) {
                 ) === 1;
         }
     }
+
 
     mysqli_stmt_close(
         $preferenceStmt
@@ -457,17 +878,27 @@ if ($preferenceStmt) {
 if ($notificationEnabled) {
 
     $sqlNotification = "
+
         INSERT INTO notifications
+
         (
+
             user_phone,
+
             title,
+
             message,
+
             type,
+
             is_read
+
         )
 
         VALUES
+
         (?, ?, ?, ?, 0)
+
     ";
 
 
@@ -481,12 +912,19 @@ if ($notificationEnabled) {
     if ($stmtNotification) {
 
         mysqli_stmt_bind_param(
+
             $stmtNotification,
+
             "ssss",
+
             $ownerPhone,
+
             $title,
+
             $message,
+
             $type
+
         );
 
 
@@ -507,10 +945,17 @@ if ($notificationEnabled) {
 // =====================================================
 
 echo json_encode([
+
     "status" => "success",
+
     "message" => "Vehicle added successfully",
+
     "vehicle_id" => $vehicleId,
+
+    "listing_type" => $listingType,
+
     "service_type" => $serviceType
+
 ]);
 
 ?>
