@@ -50,7 +50,7 @@ if ($res) {
 
 
         // =================================================
-        // NORMAL VEHICLE DEFAULTS
+        // BASIC VEHICLE DATA
         // =================================================
 
         $row['vehicle_name'] =
@@ -71,8 +71,24 @@ if ($res) {
         $row['quantity'] =
             $row['quantity'] ?? "1";
 
-        $row['deposit'] =
-            $row['deposit'] ?? "0";
+
+        // =================================================
+        // LISTING TYPE
+        // =================================================
+        // Rent
+        // Sell
+        // Rent + Sell
+        // Goods Transportation
+
+        $row['listing_type'] =
+            !empty($row['listing_type'])
+                ? $row['listing_type']
+                : "Rent";
+
+
+        // =================================================
+        // RENTAL PRICING
+        // =================================================
 
         $row['price_per_day'] =
             $row['price_per_day'] ?? "0";
@@ -83,9 +99,32 @@ if ($res) {
         $row['price_12hr'] =
             $row['price_12hr'] ?? "0";
 
+        $row['deposit'] =
+            $row['deposit'] ?? "0";
+
 
         // =================================================
-        // TRANSPORT PRICING DEFAULTS
+        // SELLING INFORMATION
+        // =================================================
+
+        $row['selling_price'] =
+            $row['selling_price'] ?? "0";
+
+        $row['vehicle_condition'] =
+            $row['vehicle_condition'] ?? "";
+
+        $row['manufacturing_year'] =
+            $row['manufacturing_year'] ?? "";
+
+        $row['kilometers_driven'] =
+            $row['kilometers_driven'] ?? "0";
+
+        $row['ownership'] =
+            $row['ownership'] ?? "";
+
+
+        // =================================================
+        // TRANSPORT PRICING
         // =================================================
 
         $row['transport_base_fare'] =
@@ -105,11 +144,94 @@ if ($res) {
 
 
         // =================================================
+        // GOODS TRANSPORT DRIVER
+        // =================================================
+
+        if (
+            $row['listing_type'] ===
+            "Goods Transportation"
+        ) {
+
+            $row['driver_required'] = true;
+
+        } else {
+
+            $row['driver_required'] = false;
+        }
+
+
+        // =================================================
+        // RENT AVAILABLE
+        // =================================================
+
+        if (
+            $row['listing_type'] === "Rent" ||
+            $row['listing_type'] === "Rent + Sell"
+        ) {
+
+            $row['available_for_rent'] = true;
+
+        } else {
+
+            $row['available_for_rent'] = false;
+        }
+
+
+        // =================================================
+        // AVAILABLE FOR SALE
+        // =================================================
+
+        if (
+            $row['listing_type'] === "Sell" ||
+            $row['listing_type'] === "Rent + Sell"
+        ) {
+
+            $row['available_for_sale'] = true;
+
+        } else {
+
+            $row['available_for_sale'] = false;
+        }
+
+
+        // =================================================
+        // AVAILABLE FOR TRANSPORT
+        // =================================================
+
+        if (
+            $row['listing_type'] ===
+            "Goods Transportation"
+        ) {
+
+            $row['available_for_transport'] = true;
+
+        } else {
+
+            $row['available_for_transport'] = false;
+        }
+
+
+        // =================================================
         // ADD VEHICLE
         // =================================================
 
         $data[] = $row;
     }
+}
+
+
+// =====================================================
+// DATABASE ERROR
+// =====================================================
+
+else {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Unable to load vehicles"
+    ]);
+
+    exit;
 }
 
 
