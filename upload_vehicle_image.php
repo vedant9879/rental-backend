@@ -5,7 +5,7 @@ header("Content-Type: application/json; charset=UTF-8");
 
 
 // =====================================================
-// CHECK REQUEST
+// ONLY POST REQUEST
 // =====================================================
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -32,6 +32,7 @@ if (!isset($_FILES['vehicle_image'])) {
 
     exit();
 }
+
 
 $file = $_FILES['vehicle_image'];
 
@@ -71,7 +72,7 @@ if ($file['size'] > $maxSize) {
 
 
 // =====================================================
-// CHECK MIME TYPE
+// CHECK IMAGE MIME TYPE
 // =====================================================
 
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -103,17 +104,15 @@ if (!in_array($mimeType, $allowedTypes, true)) {
 
 
 // =====================================================
-// CLOUDINARY VARIABLES
+// GET CLOUDINARY VARIABLES
+// From Railway Environment Variables
 // =====================================================
 
-$cloudName =
-    getenv("CLOUDINARY_CLOUD_NAME");
+$cloudName = getenv("CLOUDINARY_CLOUD_NAME");
 
-$apiKey =
-    getenv("CLOUDINARY_API_KEY");
+$apiKey = getenv("CLOUDINARY_API_KEY");
 
-$apiSecret =
-    getenv("CLOUDINARY_API_SECRET");
+$apiSecret = getenv("CLOUDINARY_API_SECRET");
 
 
 if (
@@ -132,26 +131,14 @@ if (
 
 
 // =====================================================
-// CREATE CLOUDINARY SIGNATURE
+// CLOUDINARY FOLDER
 // =====================================================
-
-$timestamp = time();
 
 $folder = "rentx/vehicles";
 
 
-$signatureString =
-    "folder=" . $folder .
-    "&timestamp=" . $timestamp .
-    $apiSecret;
-
-
-$signature =
-    sha1($signatureString);
-
-
 // =====================================================
-// PREPARE CLOUDINARY UPLOAD
+// CLOUDINARY UPLOAD URL
 // =====================================================
 
 $cloudinaryUrl =
@@ -160,28 +147,28 @@ $cloudinaryUrl =
     "/image/upload";
 
 
+// =====================================================
+// PREPARE UPLOAD DATA
+// =====================================================
+
 $postFields = [
+
     "file" => new CURLFile(
         $file['tmp_name'],
         $mimeType,
         $file['name']
     ),
 
-    "api_key" => $apiKey,
-
-    "timestamp" => $timestamp,
-
-    "folder" => $folder,
-
-    "signature" => $signature
+    "folder" => $folder
 ];
 
 
 // =====================================================
-// SEND IMAGE TO CLOUDINARY
+// CREATE CURL REQUEST
 // =====================================================
 
 $ch = curl_init($cloudinaryUrl);
+
 
 curl_setopt(
     $ch,
@@ -189,17 +176,36 @@ curl_setopt(
     true
 );
 
+
 curl_setopt(
     $ch,
     CURLOPT_POSTFIELDS,
     $postFields
 );
 
+
+// =====================================================
+// CLOUDINARY BASIC AUTHENTICATION
+// API KEY : API SECRET
+// =====================================================
+
+curl_setopt(
+    $ch,
+    CURLOPT_USERPWD,
+    $apiKey . ":" . $apiSecret
+);
+
+
+// =====================================================
+// CURL OPTIONS
+// =====================================================
+
 curl_setopt(
     $ch,
     CURLOPT_RETURNTRANSFER,
     true
 );
+
 
 curl_setopt(
     $ch,
@@ -208,20 +214,34 @@ curl_setopt(
 );
 
 
+curl_setopt(
+    $ch,
+    CURLOPT_CONNECTTIMEOUT,
+    20
+);
+
+
+// =====================================================
+// EXECUTE CLOUDINARY UPLOAD
+// =====================================================
+
 $response = curl_exec($ch);
 
+
 $curlError = curl_error($ch);
+
 
 $httpCode = curl_getinfo(
     $ch,
     CURLINFO_HTTP_CODE
 );
 
+
 curl_close($ch);
 
 
 // =====================================================
-// CHECK CURL ERROR
+// CURL ERROR
 // =====================================================
 
 if ($response === false || !empty($curlError)) {
@@ -240,12 +260,15 @@ if ($response === false || !empty($curlError)) {
 // DECODE CLOUDINARY RESPONSE
 // =====================================================
 
-$cloudinaryData =
-    json_decode(
-        $response,
-        true
-    );
+$cloudinaryData = json_decode(
+    $response,
+    true
+);
 
+
+// =====================================================
+// CHECK CLOUDINARY RESPONSE
+// =====================================================
 
 if (
     $httpCode < 200 ||
@@ -256,6 +279,7 @@ if (
     echo json_encode([
         "status" => "error",
         "message" => "Cloudinary upload failed",
+        "http_code" => $httpCode,
         "cloudinary_response" => $cloudinaryData
     ]);
 
@@ -264,14 +288,24 @@ if (
 
 
 // =====================================================
-// GET IMAGE INFORMATION
+// GET IMAGE URL
 // =====================================================
 
 $imageUrl =
     $cloudinaryData['secure_url'];
 
+
+// =====================================================
+// GET CLOUDINARY PUBLIC ID
+// =====================================================
+
 $publicId =
     $cloudinaryData['public_id'] ?? "";
+
+
+// =====================================================
+// GET IMAGE INFORMATION
+// =====================================================
 
 $width =
     $cloudinaryData['width'] ?? 0;
@@ -282,19 +316,39 @@ $height =
 $format =
     $cloudinaryData['format'] ?? "";
 
+$bytes =
+    $cloudinaryData['bytes'] ?? 0;
+
 
 // =====================================================
-// SUCCESS
+// SUCCESS RESPONSE
 // =====================================================
 
 echo json_encode([
+
     "status" => "success",
-    "message" => "Vehicle image uploaded successfully",
-    "image_url" => $imageUrl,
-    "public_id" => $publicId,
-    "width" => $width,
-    "height" => $height,
-    "format" => $format
+
+    "message" =>
+        "Vehicle image uploaded successfully",
+
+    "image_url" =>
+        $imageUrl,
+
+    "public_id" =>
+        $publicId,
+
+    "width" =>
+        $width,
+
+    "height" =>
+        $height,
+
+    "format" =>
+        $format,
+
+    "bytes" =>
+        $bytes
+
 ]);
 
 ?>
