@@ -1,8 +1,30 @@
 <?php
 
-header("Content-Type: application/json");
+header("Content-Type: application/json; charset=UTF-8");
 
 require_once "db.php";
+
+
+// =========================================================
+// VALIDATE DATABASE CONNECTION
+// =========================================================
+
+if (!$conn) {
+
+    http_response_code(500);
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Database connection failed"
+    ]);
+
+    exit;
+}
+
+
+// =========================================================
+// GET BUYER PHONE
+// =========================================================
 
 $buyer_phone = trim(
     $_GET["buyer_phone"] ?? ""
@@ -11,14 +33,22 @@ $buyer_phone = trim(
 
 if ($buyer_phone === "") {
 
-    echo json_encode([]);
+    echo json_encode([
+        "success" => true,
+        "data" => []
+    ]);
 
     exit;
 }
 
 
+// =========================================================
+// SQL
+// =========================================================
+
 $sql = "
     SELECT
+
         br.id,
         br.vehicle_id,
         br.buyer_phone,
@@ -37,7 +67,7 @@ $sql = "
 
     FROM buy_requests br
 
-    INNER JOIN vehicles v
+    LEFT JOIN vehicles v
         ON br.vehicle_id = v.id
 
     WHERE br.buyer_phone = ?
@@ -46,9 +76,30 @@ $sql = "
 ";
 
 
-$stmt =
-    $conn->prepare($sql);
+// =========================================================
+// PREPARE
+// =========================================================
 
+$stmt = $conn->prepare($sql);
+
+
+if (!$stmt) {
+
+    http_response_code(500);
+
+    echo json_encode([
+        "success" => false,
+        "message" => "SQL prepare failed: " .
+                $conn->error
+    ]);
+
+    exit;
+}
+
+
+// =========================================================
+// BIND PARAMETER
+// =========================================================
 
 $stmt->bind_param(
     "s",
@@ -56,24 +107,123 @@ $stmt->bind_param(
 );
 
 
-$stmt->execute();
+// =========================================================
+// EXECUTE
+// =========================================================
+
+if (!$stmt->execute()) {
+
+    http_response_code(500);
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Unable to load buy requests: " .
+                $stmt->error
+    ]);
+
+    $stmt->close();
+
+    exit;
+}
 
 
-$result =
-    $stmt->get_result();
+// =========================================================
+// BIND RESULT
+// =========================================================
 
+$stmt->bind_result(
+
+    $id,
+    $vehicle_id,
+    $request_buyer_phone,
+    $seller_phone,
+    $status,
+    $buyer_message,
+    $created_at,
+
+    $vehicle_name,
+    $vehicle_type,
+    $vehicle_image,
+    $selling_price,
+    $city,
+    $address,
+    $listing_type
+);
+
+
+// =========================================================
+// BUILD RESPONSE
+// =========================================================
 
 $data = [];
 
 
-while (
-    $row = $result->fetch_assoc()
-) {
+while ($stmt->fetch()) {
 
-    $data[] = $row;
+    $data[] = [
+
+        "id" =>
+            (int) $id,
+
+        "vehicle_id" =>
+            (int) $vehicle_id,
+
+        "buyer_phone" =>
+            $request_buyer_phone,
+
+        "seller_phone" =>
+            $seller_phone,
+
+        "status" =>
+            $status,
+
+        "buyer_message" =>
+            $buyer_message,
+
+        "created_at" =>
+            $created_at,
+
+        "vehicle_name" =>
+            $vehicle_name ?? "Vehicle",
+
+        "vehicle_type" =>
+            $vehicle_type ?? "",
+
+        "vehicle_image" =>
+            $vehicle_image ?? "",
+
+        "selling_price" =>
+            $selling_price ?? "0",
+
+        "city" =>
+            $city ?? "",
+
+        "address" =>
+            $address ?? "",
+
+        "listing_type" =>
+            $listing_type ?? ""
+    ];
 }
 
 
-echo json_encode($data);
+// =========================================================
+// CLOSE
+// =========================================================
+
+$stmt->close();
+
+
+// =========================================================
+// SUCCESS RESPONSE
+// =========================================================
+
+echo json_encode([
+
+    "success" => true,
+
+    "data" => $data
+
+]);
 
 ?>
