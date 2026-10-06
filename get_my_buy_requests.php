@@ -71,7 +71,7 @@ if (!$stmt) {
 
     echo json_encode([
         "success" => false,
-        "message" => "SQL prepare failed"
+        "message" => "SQL prepare failed". $conn->error
     ]);
 
     exit;
