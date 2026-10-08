@@ -1,197 +1,154 @@
 <?php
 
-include "db.php";
-
-header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-$vehicleId = trim($_POST['vehicle_id'] ?? '');
+require_once "db.php";
 
-if ($vehicleId === '' || !ctype_digit($vehicleId)) {
+$response = [
+    "success" => false,
+    "message" => "Unable to delete vehicle"
+];
 
-    echo json_encode([
-        "success" => false,
-        "message" => "Invalid vehicle ID"
-    ]);
+try {
 
-    exit();
-}
+    // =====================================================
+    // GET VEHICLE ID
+    // Accept both vehicle_id and id
+    // =====================================================
 
-$vehicleId = (int)$vehicleId;
+    $vehicle_id = 0;
 
+    if (isset($_POST["vehicle_id"])) {
+        $vehicle_id = intval($_POST["vehicle_id"]);
+    } elseif (isset($_POST["id"])) {
+        $vehicle_id = intval($_POST["id"]);
+    } elseif (isset($_GET["vehicle_id"])) {
+        $vehicle_id = intval($_GET["vehicle_id"]);
+    } elseif (isset($_GET["id"])) {
+        $vehicle_id = intval($_GET["id"]);
+    }
 
-/*
- * Get vehicle information before deleting.
- */
+    // =====================================================
+    // VALIDATE ID
+    // =====================================================
 
-$sqlVehicle = "
-    SELECT
-        vehicle_name,
-        owner_phone
-    FROM vehicles
-    WHERE id = ?
-    LIMIT 1
-";
+    if ($vehicle_id <= 0) {
 
-$stmtVehicle = mysqli_prepare(
-    $conn,
-    $sqlVehicle
-);
+        echo json_encode([
+            "success" => false,
+            "message" => "Invalid vehicle ID"
+        ]);
 
-if (!$stmtVehicle) {
+        exit;
+    }
 
-    echo json_encode([
-        "success" => false,
-        "message" => "Database error"
-    ]);
+    // =====================================================
+    // CHECK VEHICLE EXISTS
+    // =====================================================
 
-    exit();
-}
+    $checkSql = "
+        SELECT id
+        FROM vehicles
+        WHERE id = ?
+        LIMIT 1
+    ";
 
-mysqli_stmt_bind_param(
-    $stmtVehicle,
-    "i",
-    $vehicleId
-);
+    $checkStmt = $conn->prepare($checkSql);
 
-mysqli_stmt_execute(
-    $stmtVehicle
-);
+    if (!$checkStmt) {
 
-$resultVehicle = mysqli_stmt_get_result(
-    $stmtVehicle
-);
+        echo json_encode([
+            "success" => false,
+            "message" => "Database prepare error"
+        ]);
 
-if (
-    !$resultVehicle ||
-    mysqli_num_rows($resultVehicle) === 0
-) {
+        exit;
+    }
 
-    mysqli_stmt_close($stmtVehicle);
-
-    echo json_encode([
-        "success" => false,
-        "message" => "Vehicle not found"
-    ]);
-
-    exit();
-}
-
-$vehicle = mysqli_fetch_assoc(
-    $resultVehicle
-);
-
-mysqli_stmt_close(
-    $stmtVehicle
-);
-
-
-/*
- * Delete vehicle.
- */
-
-$sqlDelete = "
-    DELETE FROM vehicles
-    WHERE id = ?
-    LIMIT 1
-";
-
-$stmtDelete = mysqli_prepare(
-    $conn,
-    $sqlDelete
-);
-
-if (!$stmtDelete) {
-
-    echo json_encode([
-        "success" => false,
-        "message" => "Database error"
-    ]);
-
-    exit();
-}
-
-mysqli_stmt_bind_param(
-    $stmtDelete,
-    "i",
-    $vehicleId
-);
-
-$deleted =
-    mysqli_stmt_execute(
-        $stmtDelete
+    $checkStmt->bind_param(
+        "i",
+        $vehicle_id
     );
 
-mysqli_stmt_close(
-    $stmtDelete
-);
+    $checkStmt->execute();
 
-if (!$deleted) {
+    $checkStmt->store_result();
+
+    if ($checkStmt->num_rows === 0) {
+
+        $checkStmt->close();
+
+        echo json_encode([
+            "success" => false,
+            "message" => "Vehicle not found"
+        ]);
+
+        exit;
+    }
+
+    $checkStmt->close();
+
+    // =====================================================
+    // DELETE VEHICLE
+    // =====================================================
+
+    $deleteSql = "
+        DELETE FROM vehicles
+        WHERE id = ?
+        LIMIT 1
+    ";
+
+    $deleteStmt = $conn->prepare($deleteSql);
+
+    if (!$deleteStmt) {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "Unable to prepare delete request"
+        ]);
+
+        exit;
+    }
+
+    $deleteStmt->bind_param(
+        "i",
+        $vehicle_id
+    );
+
+    if ($deleteStmt->execute()) {
+
+        if ($deleteStmt->affected_rows > 0) {
+
+            echo json_encode([
+                "success" => true,
+                "message" => "Vehicle removed successfully",
+                "vehicle_id" => $vehicle_id
+            ]);
+
+        } else {
+
+            echo json_encode([
+                "success" => false,
+                "message" => "Vehicle could not be deleted"
+            ]);
+        }
+
+    } else {
+
+        echo json_encode([
+            "success" => false,
+            "message" => "Database delete failed"
+        ]);
+    }
+
+    $deleteStmt->close();
+
+} catch (Exception $e) {
 
     echo json_encode([
         "success" => false,
-        "message" => "Unable to remove vehicle"
+        "message" => "Server error: " . $e->getMessage()
     ]);
-
-    exit();
 }
-
-
-/*
- * Notification.
- */
-
-$title =
-    "Vehicle Removed";
-
-$message =
-    $vehicle['vehicle_name'] .
-    " has been removed from your RentX listings.";
-
-$type =
-    "vehicle";
-
-$sqlNotification = "
-    INSERT INTO notifications
-    (
-        user_phone,
-        title,
-        message,
-        type,
-        is_read
-    )
-    VALUES (?, ?, ?, ?, 0)
-";
-
-$stmtNotification = mysqli_prepare(
-    $conn,
-    $sqlNotification
-);
-
-if ($stmtNotification) {
-
-    mysqli_stmt_bind_param(
-        $stmtNotification,
-        "ssss",
-        $vehicle['owner_phone'],
-        $title,
-        $message,
-        $type
-    );
-
-    mysqli_stmt_execute(
-        $stmtNotification
-    );
-
-    mysqli_stmt_close(
-        $stmtNotification
-    );
-}
-
-
-echo json_encode([
-    "success" => true,
-    "message" => "Vehicle removed successfully"
-]);
 
 ?>
