@@ -1,8 +1,9 @@
+```php
 <?php
-
-header("Content-Type: application/json");
-
+header("Content-Type: application/json; charset=UTF-8");
 require_once "db.php";
+
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 $response = [
     "success" => false,
@@ -10,290 +11,159 @@ $response = [
 ];
 
 try {
+    $vehicleId = (int)($_POST["vehicle_id"] ?? 0);
+    $buyerPhone = trim($_POST["buyer_phone"] ?? "");
+    $buyerMessage = trim($_POST["buyer_message"] ?? "");
 
-    $vehicle_id = intval(
-        $_POST["vehicle_id"] ?? 0
-    );
-
-    $buyer_phone = trim(
-        $_POST["buyer_phone"] ?? ""
-    );
-
-    $buyer_message = trim(
-        $_POST["buyer_message"] ?? ""
-    );
-
-
-    // =========================================================
-    // VALIDATION
-    // =========================================================
-
-    if ($vehicle_id <= 0) {
-
-        $response["message"] =
-            "Invalid vehicle";
-
-        echo json_encode($response);
-        exit;
+    if ($vehicleId <= 0) {
+        throw new Exception("Invalid vehicle");
     }
 
-
-    if ($buyer_phone === "") {
-
-        $response["message"] =
-            "Please login again";
-
-        echo json_encode($response);
-        exit;
+    if ($buyerPhone === "") {
+        throw new Exception("Please login again");
     }
 
+    if (strlen($buyerPhone) > 30) {
+        throw new Exception("Invalid buyer phone");
+    }
 
-    // =========================================================
-    // GET VEHICLE
-    // =========================================================
+    if (strlen($buyerMessage) > 1000) {
+        throw new Exception("Message must not exceed 1000 characters");
+    }
 
-    $stmt = $conn->prepare(
-        "SELECT
-            id,
-            owner_phone,
-            vehicle_name,
-            listing_type,
-            selling_price
-         FROM vehicles
-         WHERE id = ?
-         LIMIT 1"
-    );
+    $conn->begin_transaction();
 
-    $stmt->bind_param(
-        "i",
-        $vehicle_id
-    );
-
+    // Lock the vehicle row while checking and creating a request.
+    $stmt = $conn->prepare("
+        SELECT id, owner_phone, vehicle_name, listing_type, selling_price
+        FROM vehicles
+        WHERE id = ?
+        LIMIT 1
+        FOR UPDATE
+    ");
+    $stmt->bind_param("i", $vehicleId);
     $stmt->execute();
 
-    $result =
-        $stmt->get_result();
+    $vehicle = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
 
-
-    if ($result->num_rows === 0) {
-
-        $response["message"] =
-            "Vehicle not found";
-
-        echo json_encode($response);
-        exit;
+    if (!$vehicle) {
+        throw new Exception("Vehicle not found");
     }
 
+    $sellerPhone = trim($vehicle["owner_phone"] ?? "");
+    $listingType = strtolower(trim($vehicle["listing_type"] ?? ""));
+    $sellingPrice = (float)($vehicle["selling_price"] ?? 0);
 
-    $vehicle =
-        $result->fetch_assoc();
-
-
-    $seller_phone =
-        trim(
-            $vehicle["owner_phone"] ?? ""
-        );
-
-
-    $listing_type =
-        strtolower(
-            trim(
-                $vehicle["listing_type"] ?? ""
-            )
-        );
-
-
-    // =========================================================
-    // ONLY SELL / RENT + SELL
-    // =========================================================
-
-    if (
-        $listing_type !== "sell" &&
-        $listing_type !== "rent + sell"
-    ) {
-
-        $response["message"] =
-            "This vehicle is not available for purchase";
-
-        echo json_encode($response);
-        exit;
+    if (!in_array($listingType, ["sell", "rent + sell"], true)) {
+        throw new Exception("This vehicle is not available for purchase");
     }
 
-
-    // =========================================================
-    // SELLER PHONE VALIDATION
-    // =========================================================
-
-    if ($seller_phone === "") {
-
-        $response["message"] =
-            "Seller information unavailable";
-
-        echo json_encode($response);
-        exit;
+    if ($sellerPhone === "") {
+        throw new Exception("Seller information unavailable");
     }
 
-
-    // =========================================================
-    // OWN VEHICLE CHECK
-    // =========================================================
-
-    if (
-        $buyer_phone === $seller_phone
-    ) {
-
-        $response["message"] =
-            "You cannot send a buy request for your own vehicle";
-
-        echo json_encode($response);
-        exit;
+    if ($buyerPhone === $sellerPhone) {
+        throw new Exception("You cannot send a buy request for your own vehicle");
     }
 
+    if ($sellingPrice <= 0) {
+        throw new Exception("The seller has not set a valid selling price");
+    }
 
-    // =========================================================
-    // CHECK EXISTING BUY REQUEST
-    // =========================================================
-
-    $check = $conn->prepare(
-        "SELECT
-            id,
-            status
-         FROM buy_requests
-         WHERE vehicle_id = ?
-         AND buyer_phone = ?
-         AND status IN ('pending', 'accepted')
-         LIMIT 1"
-    );
-
-    $check->bind_param(
-        "is",
-        $vehicle_id,
-        $buyer_phone
-    );
-
+    // Prevent another pending/accepted request from this buyer.
+    $check = $conn->prepare("
+        SELECT id, status
+        FROM buy_requests
+        WHERE vehicle_id = ?
+          AND buyer_phone = ?
+          AND status IN ('pending', 'accepted')
+        LIMIT 1
+    ");
+    $check->bind_param("is", $vehicleId, $buyerPhone);
     $check->execute();
+    $existing = $check->get_result()->fetch_assoc();
+    $check->close();
 
-    $existing =
-        $check->get_result();
-
-
-    if ($existing->num_rows > 0) {
-
-        $old =
-            $existing->fetch_assoc();
-
-        $response["message"] =
-            "You already have a " .
-            $old["status"] .
-            " request for this vehicle";
-
-        echo json_encode($response);
-        exit;
+    if ($existing) {
+        throw new Exception(
+            "You already have a " . $existing["status"] .
+            " request for this vehicle"
+        );
     }
 
-
-    // =========================================================
-    // CHECK IF ANOTHER BUYER WAS ALREADY ACCEPTED
-    // =========================================================
-
-    $acceptedCheck = $conn->prepare(
-        "SELECT id
-         FROM buy_requests
-         WHERE vehicle_id = ?
-         AND status = 'accepted'
-         LIMIT 1"
-    );
-
-    $acceptedCheck->bind_param(
-        "i",
-        $vehicle_id
-    );
-
+    // A vehicle must not be accepted for two buyers.
+    $acceptedCheck = $conn->prepare("
+        SELECT id
+        FROM buy_requests
+        WHERE vehicle_id = ?
+          AND status = 'accepted'
+        LIMIT 1
+    ");
+    $acceptedCheck->bind_param("i", $vehicleId);
     $acceptedCheck->execute();
+    $alreadyAccepted = $acceptedCheck->get_result()->num_rows > 0;
+    $acceptedCheck->close();
 
-
-    if (
-        $acceptedCheck
-            ->get_result()
-            ->num_rows > 0
-    ) {
-
-        $response["message"] =
-            "This vehicle already has an accepted buyer";
-
-        echo json_encode($response);
-        exit;
+    if ($alreadyAccepted) {
+        throw new Exception("This vehicle already has an accepted buyer");
     }
 
-
-    // =========================================================
-    // INSERT REQUEST
-    // =========================================================
-
-    $insert = $conn->prepare(
-        "INSERT INTO buy_requests
-        (
-            vehicle_id,
-            buyer_phone,
-            seller_phone,
-            status,
-            buyer_message
-        )
-        VALUES
-        (
-            ?,
-            ?,
-            ?,
-            'pending',
-            ?
-        )"
-    );
-
-
+    // Store the buyer's request; do not mark it as paid here.
+    $insert = $conn->prepare("
+        INSERT INTO buy_requests
+            (vehicle_id, buyer_phone, seller_phone, status, buyer_message)
+        VALUES (?, ?, ?, 'pending', ?)
+    ");
     $insert->bind_param(
         "isss",
-        $vehicle_id,
-        $buyer_phone,
-        $seller_phone,
-        $buyer_message
+        $vehicleId,
+        $buyerPhone,
+        $sellerPhone,
+        $buyerMessage
     );
+    $insert->execute();
+    $requestId = (int)$conn->insert_id;
+    $insert->close();
 
+    $conn->commit();
 
-    if (!$insert->execute()) {
-
-        $response["message"] =
-            "Unable to create buy request";
-
-        echo json_encode($response);
-        exit;
-    }
-
-
-    // =========================================================
-    // SUCCESS
-    // =========================================================
-
-    $response["success"] =
-        true;
-
-    $response["message"] =
-        "Buy request sent successfully";
-
-    $response["request_id"] =
-        $insert->insert_id;
-
-    $response["status"] =
-        "pending";
-
-
-    echo json_encode($response);
-
+    $response["success"] = true;
+    $response["message"] = "Buy request sent successfully";
+    $response["request_id"] = $requestId;
+    $response["status"] = "pending";
+    $response["selling_price"] = number_format($sellingPrice, 2, ".", "");
+    $response["currency"] = "INR";
 
 } catch (Exception $e) {
+    if (isset($conn) && $conn instanceof mysqli) {
+        try {
+            $conn->rollback();
+        } catch (Throwable $ignored) {
+        }
+    }
 
-    $response["message"] =
-        "Server error";
+    $response["success"] = false;
 
-    echo json_encode($response);
+    // Show expected validation errors, but do not expose SQL details.
+    $response["message"] = $e->getMessage();
+
+    http_response_code(
+        in_array($e->getMessage(), [
+            "Invalid vehicle",
+            "Please login again",
+            "Invalid buyer phone",
+            "Message must not exceed 1000 characters",
+            "Vehicle not found",
+            "This vehicle is not available for purchase",
+            "Seller information unavailable",
+            "You cannot send a buy request for your own vehicle",
+            "The seller has not set a valid selling price",
+            "This vehicle already has an accepted buyer"
+        ], true) ? 400 : 500
+    );
 }
+
+echo json_encode($response);
 ?>
+```
