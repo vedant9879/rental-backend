@@ -103,8 +103,19 @@ try {
         if (!$record) {
             throw new Exception("Rental booking not found");
         }
-        if (strtolower(trim((string)$record["status"])) !== "accepted") {
-            throw new Exception("Rental booking must be accepted before payment");
+        $bookingStatus = strtolower(trim((string)$record["status"]));
+        $payableRentalStatuses = [
+            "accepted",
+            "confirmed",
+            "approved",
+            "completed",
+            "complete"
+        ];
+
+        if (!in_array($bookingStatus, $payableRentalStatuses, true)) {
+            throw new Exception(
+                "Rental booking must be accepted or completed before payment"
+            );
         }
         if (normalizePhone($record["user_phone"]) !== $payerPhone) {
             throw new Exception("Payer does not match the rental customer");
@@ -208,7 +219,7 @@ try {
         FROM payments
         WHERE service_type = ?
           AND service_record_id = ?
-          AND status IN ('pending', 'submitted', 'paid')
+          AND status IN ('pending', 'submitted', 'paid', 'confirmed')
         LIMIT 1
         FOR UPDATE
     ";
