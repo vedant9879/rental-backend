@@ -3,7 +3,7 @@
 session_start();
 
 require_once "../db.php";
-
+header("Content-Type: text/html; charset=UTF-8");
 if (!isset($_SESSION["admin_id"])) {
 
     if ($_SERVER["REQUEST_METHOD"] === "POST") {
