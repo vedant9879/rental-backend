@@ -18,9 +18,28 @@ $ownerPhone = trim(
     $_POST['owner_phone'] ?? ''
 );
 
-$newStatus = trim(
-    $_POST['status'] ?? ''
-);
+$newStatus = strtolower(trim($_POST['status'] ?? ''));
+$finalFareInput = trim((string)($_POST['final_fare'] ?? ''));
+$finalFare = null;
+
+if ($newStatus === 'accepted') {
+    if ($finalFareInput === '' || !is_numeric($finalFareInput)) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Enter the agreed final fare to accept this request'
+        ]);
+        exit();
+    }
+
+    $finalFare = (float)$finalFareInput;
+    if ($finalFare <= 0 || $finalFare > 100000000) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Final fare must be greater than zero and within the allowed limit'
+        ]);
+        exit();
+    }
+}
 
 
 // =========================================================
@@ -228,40 +247,50 @@ if (!$validTransition) {
 // UPDATE STATUS
 // =========================================================
 
-$updateSql = "
-    UPDATE transport_requests
-    SET
-        status = ?,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-      AND owner_phone = ?
-    LIMIT 1
-";
+if ($newStatus === "accepted") {
+    $updateSql = "
+        UPDATE transport_requests
+        SET status = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND owner_phone = ?
+        LIMIT 1
+    ";
+} else {
+    $updateSql = "
+        UPDATE transport_requests
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND owner_phone = ?
+        LIMIT 1
+    ";
+}
 
-$updateStmt =
-    mysqli_prepare(
-        $conn,
-        $updateSql
-    );
+$updateStmt = mysqli_prepare($conn, $updateSql);
 
 if (!$updateStmt) {
-
     echo json_encode([
         "success" => false,
-        "message" => "Unable to update request"
+        "message" => "Unable to update request. Ensure transport_requests.final_fare exists."
     ]);
-
     exit();
 }
 
-
-mysqli_stmt_bind_param(
-    $updateStmt,
-    "sis",
-    $newStatus,
-    $requestId,
-    $ownerPhone
-);
+if ($newStatus === "accepted") {
+    mysqli_stmt_bind_param(
+        $updateStmt,
+        "sdis",
+        $newStatus,
+        $finalFare,
+        $requestId,
+        $ownerPhone
+    );
+} else {
+    mysqli_stmt_bind_param(
+        $updateStmt,
+        "sis",
+        $newStatus,
+        $requestId,
+        $ownerPhone
+    );
+}
 
 
 if (!mysqli_stmt_execute($updateStmt)) {
@@ -539,7 +568,9 @@ echo json_encode([
     "success" => true,
     "message" => $responseMessage,
     "request_id" => $requestId,
-    "status" => $newStatus
+    "status" => $newStatus,
+    "final_fare" => ($newStatus === "accepted") ? number_format($finalFare, 2, ".", "") : null,
+    "currency" => "INR"
 ]);
 
 ?>
