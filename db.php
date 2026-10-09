@@ -2,7 +2,6 @@
 
 mysqli_report(MYSQLI_REPORT_OFF);
 
-header("Content-Type: application/json; charset=UTF-8");
 
 $host = "mysql.railway.internal";
 $user = "root";
