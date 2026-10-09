@@ -3,190 +3,140 @@
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-// =====================================================
-// ONLY POST REQUEST
-// =====================================================
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Only POST requests are allowed"
-    ]);
+function sendJson($statusCode, array $data) {
+    http_response_code($statusCode);
+    echo json_encode($data, JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-// =====================================================
-// CHECK IMAGE
-// =====================================================
+// Only POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    sendJson(405, [
+        "status" => "error",
+        "message" => "Only POST requests are allowed"
+    ]);
+}
+
+// Image required
 if (!isset($_FILES['vehicle_image'])) {
-    http_response_code(400);
-    echo json_encode([
+    sendJson(400, [
         "status" => "error",
         "message" => "Vehicle image is required"
     ]);
-    exit;
 }
 
 $file = $_FILES['vehicle_image'];
 
-// =====================================================
-// CHECK UPLOAD ERROR
-// =====================================================
 if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
     $uploadError = $file['error'] ?? UPLOAD_ERR_NO_FILE;
-
-    $uploadMessages = [
-        UPLOAD_ERR_INI_SIZE   => "Image exceeds the server upload_max_filesize limit",
-        UPLOAD_ERR_FORM_SIZE  => "Image exceeds the form upload size limit",
+    $messages = [
+        UPLOAD_ERR_INI_SIZE   => "Image exceeds server upload_max_filesize",
+        UPLOAD_ERR_FORM_SIZE  => "Image exceeds form upload size",
         UPLOAD_ERR_PARTIAL    => "Image was only partially uploaded",
         UPLOAD_ERR_NO_FILE    => "No image file was received",
         UPLOAD_ERR_NO_TMP_DIR => "Server temporary upload directory is missing",
         UPLOAD_ERR_CANT_WRITE => "Server could not write the uploaded image",
-        UPLOAD_ERR_EXTENSION  => "A PHP extension stopped the image upload"
+        UPLOAD_ERR_EXTENSION  => "A PHP extension stopped the upload"
     ];
-
-    http_response_code(400);
-    echo json_encode([
+    sendJson(400, [
         "status" => "error",
-        "message" => $uploadMessages[$uploadError] ?? "Image upload failed",
+        "message" => $messages[$uploadError] ?? "Image upload failed",
         "upload_error" => $uploadError
     ]);
-    exit;
 }
 
-// =====================================================
-// CHECK TEMP FILE AND SIZE (MAX 10 MB)
-// =====================================================
-if (
-    empty($file['tmp_name']) ||
-    !is_uploaded_file($file['tmp_name'])
-) {
-    http_response_code(400);
-    echo json_encode([
+if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+    sendJson(400, [
         "status" => "error",
         "message" => "Uploaded image temporary file is invalid"
     ]);
-    exit;
 }
 
 $maxSize = 10 * 1024 * 1024;
-
 if (($file['size'] ?? 0) <= 0 || $file['size'] > $maxSize) {
-    http_response_code(413);
-    echo json_encode([
+    sendJson(413, [
         "status" => "error",
         "message" => "Image must be larger than 0 bytes and 10 MB or less"
     ]);
-    exit;
 }
 
-// =====================================================
-// CHECK MIME TYPE
-// =====================================================
 if (!class_exists('finfo')) {
-    http_response_code(500);
-    echo json_encode([
+    sendJson(500, [
         "status" => "error",
         "message" => "PHP fileinfo extension is not enabled"
     ]);
-    exit;
 }
 
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
 if ($finfo === false) {
-    http_response_code(500);
-    echo json_encode([
+    sendJson(500, [
         "status" => "error",
         "message" => "Unable to inspect uploaded image type"
     ]);
-    exit;
 }
-
 $mimeType = finfo_file($finfo, $file['tmp_name']);
 finfo_close($finfo);
 
-$allowedTypes = [
-    "image/jpeg",
-    "image/png",
-    "image/webp"
-];
-
+$allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 if (!in_array($mimeType, $allowedTypes, true)) {
-    http_response_code(415);
-    echo json_encode([
+    sendJson(415, [
         "status" => "error",
         "message" => "Only JPG, PNG and WEBP images are allowed"
     ]);
-    exit;
 }
 
-// Validate actual image data as well as MIME type.
 if (@getimagesize($file['tmp_name']) === false) {
-    http_response_code(415);
-    echo json_encode([
+    sendJson(415, [
         "status" => "error",
         "message" => "The selected file is not a valid image"
     ]);
-    exit;
 }
 
-// =====================================================
-// CHECK REQUIRED PHP EXTENSIONS
-// =====================================================
-if (!function_exists('curl_init')) {
-    http_response_code(500);
-    echo json_encode([
+if (!function_exists('curl_init') || !class_exists('CURLFile')) {
+    sendJson(500, [
         "status" => "error",
-        "message" => "PHP cURL extension is not enabled on the server"
+        "message" => "PHP cURL extension is not enabled"
     ]);
-    exit;
 }
 
-if (!class_exists('CURLFile')) {
-    http_response_code(500);
-    echo json_encode([
-        "status" => "error",
-        "message" => "PHP CURLFile support is unavailable"
-    ]);
-    exit;
-}
-
-// =====================================================
-// CLOUDINARY ENVIRONMENT VARIABLES
-// Set these in Railway Variables.
-// =====================================================
+// Cloudinary credentials from Railway Variables
 $cloudName = trim((string) getenv("CLOUDINARY_CLOUD_NAME"));
 $apiKey = trim((string) getenv("CLOUDINARY_API_KEY"));
 $apiSecret = trim((string) getenv("CLOUDINARY_API_SECRET"));
 
 if ($cloudName === "" || $apiKey === "" || $apiSecret === "") {
-    http_response_code(500);
-    echo json_encode([
+    sendJson(500, [
         "status" => "error",
         "message" => "Cloudinary configuration is missing. Check Railway Variables."
     ]);
-    exit;
 }
 
-// =====================================================
-// CLOUDINARY SIGNED UPLOAD
-// =====================================================
 $folder = "rentx/vehicles";
 $timestamp = time();
+$cloudinaryUrl = "https://api.cloudinary.com/v1_1/" .
+    rawurlencode($cloudName) . "/image/upload";
 
-$cloudinaryUrl =
-    "https://api.cloudinary.com/v1_1/" .
-    rawurlencode($cloudName) .
-    "/image/upload";
+/*
+ * Cloudinary signature:
+ * - Sign all non-file request parameters except api_key and signature.
+ * - Sort parameter names alphabetically.
+ * - Join as key=value pairs with &.
+ * - Append API secret, then SHA-1 hash.
+ *
+ * For this request the signed parameters are folder and timestamp.
+ */
+$signatureParameters = [
+    "folder" => $folder,
+    "timestamp" => (string) $timestamp
+];
+ksort($signatureParameters, SORT_STRING);
 
-// Cloudinary signed parameters are sorted alphabetically.
-// Do not include api_key, file, or signature in the signature string.
-$signatureString =
-    "folder=" . $folder .
-    "&timestamp=" . $timestamp .
-    $apiSecret;
-
-$signature = sha1($signatureString);
+$parts = [];
+foreach ($signatureParameters as $key => $value) {
+    $parts[] = $key . "=" . $value;
+}
+$stringToSign = implode("&", $parts) . $apiSecret;
+$signature = sha1($stringToSign);
 
 $postFields = [
     "file" => new CURLFile(
@@ -201,7 +151,6 @@ $postFields = [
 ];
 
 $ch = curl_init();
-
 curl_setopt_array($ch, [
     CURLOPT_URL => $cloudinaryUrl,
     CURLOPT_POST => true,
@@ -218,23 +167,14 @@ $curlError = curl_error($ch);
 $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// =====================================================
-// CLOUDINARY CONNECTION ERROR
-// =====================================================
 if ($response === false) {
-    http_response_code(502);
-    echo json_encode([
+    sendJson(502, [
         "status" => "error",
         "message" => "Unable to connect to Cloudinary",
-        // Useful for Railway logs/debugging; avoid exposing secrets.
         "error" => $curlError
     ]);
-    exit;
 }
 
-// =====================================================
-// DECODE CLOUDINARY RESPONSE
-// =====================================================
 $cloudinaryData = json_decode($response, true);
 
 if (
@@ -243,26 +183,19 @@ if (
     !is_array($cloudinaryData) ||
     empty($cloudinaryData['secure_url'])
 ) {
-    http_response_code(502);
-
-    $cloudinaryMessage = "Cloudinary upload failed";
+    $message = "Cloudinary upload failed";
     if (is_array($cloudinaryData) && !empty($cloudinaryData['error']['message'])) {
-        $cloudinaryMessage = (string) $cloudinaryData['error']['message'];
+        $message = (string) $cloudinaryData['error']['message'];
     }
 
-    echo json_encode([
+    sendJson(502, [
         "status" => "error",
-        "message" => $cloudinaryMessage,
+        "message" => $message,
         "http_code" => $httpCode
     ]);
-    exit;
 }
 
-// =====================================================
-// SUCCESS RESPONSE — MATCHES ANDROID EXPECTATIONS
-// Android expects status == "success" and image_url.
-// =====================================================
-echo json_encode([
+sendJson(200, [
     "status" => "success",
     "message" => "Vehicle image uploaded successfully",
     "image_url" => $cloudinaryData['secure_url'],
@@ -271,7 +204,5 @@ echo json_encode([
     "height" => $cloudinaryData['height'] ?? 0,
     "format" => $cloudinaryData['format'] ?? "",
     "bytes" => $cloudinaryData['bytes'] ?? 0
-], JSON_UNESCAPED_SLASHES);
-
-exit;
+]);
 ?>
