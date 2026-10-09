@@ -1,11 +1,7 @@
-
 <?php
 header("Content-Type: application/json; charset=UTF-8");
-
 require_once __DIR__ . "/db.php";
-
 mysqli_report(MYSQLI_REPORT_OFF);
-
 function respond($statusCode, $data)
 {
     http_response_code($statusCode);
