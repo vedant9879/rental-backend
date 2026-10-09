@@ -161,10 +161,10 @@ if (
 // =====================================================
 
 $allowedListingTypes = [
-
     "Rent",
     "Sell",
-    "Rent + Sell"
+    "Rent + Sell",
+    "Goods Transportation"
 ];
 
 if (!in_array(
@@ -691,7 +691,7 @@ mysqli_stmt_bind_param(
 
     $stmt,
 
-    "ssssssdddssdisssidsdddd",
+    "ssssssddddsiisssidddddd",
 
     $ownerPhone,
     $vehicleName,
