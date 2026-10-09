@@ -27,7 +27,7 @@ if (!is_array($input)) {
     $input = $_POST;
 }
 
-$phone = trim($input["phone"] ?? "");
+$phone = trim((string)($input["phone"] ?? ""));
 
 if ($phone === "" || strlen($phone) > 30) {
     respond(400, [
@@ -65,7 +65,10 @@ try {
     }
 
     $stmt->bind_param("ss", $phone, $phone);
-    $stmt->execute();
+
+    if (!$stmt->execute()) {
+        throw new Exception("Payment query failed");
+    }
 
     $result = $stmt->get_result();
     $payments = [];
@@ -85,6 +88,8 @@ try {
     ]);
 
 } catch (Throwable $e) {
+    error_log("get_payments.php error: " . $e->getMessage());
+
     respond(500, [
         "success" => false,
         "message" => "Unable to retrieve payments"
