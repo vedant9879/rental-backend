@@ -1,3 +1,4 @@
+
 <?php
 
 include "db.php";
@@ -5,6 +6,23 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
+mysqli_set_charset($conn, "utf8mb4");
+
+/*
+|--------------------------------------------------------------------------
+| JSON RESPONSE HELPER
+|--------------------------------------------------------------------------
+*/
+
+function sendResponse($status, $message, $extra = [])
+{
+    echo json_encode(array_merge([
+        "status" => $status,
+        "message" => $message
+    ], $extra));
+
+    exit();
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -12,15 +30,25 @@ header("Content-Type: application/json; charset=UTF-8");
 |--------------------------------------------------------------------------
 */
 
-$userPhone = trim($_POST['user_phone'] ?? '');
-$vehicleId = trim($_POST['vehicle_id'] ?? '');
-$startDate = trim($_POST['start_date'] ?? '');
-$endDate = trim($_POST['end_date'] ?? '');
+$userPhone  = trim($_POST['user_phone'] ?? '');
+$vehicleId  = trim($_POST['vehicle_id'] ?? '');
+$startDate  = trim($_POST['start_date'] ?? '');
+$endDate    = trim($_POST['end_date'] ?? '');
 $totalPrice = trim($_POST['total_price'] ?? '');
-$quantity = trim($_POST['quantity'] ?? '1');
+$quantity   = trim($_POST['quantity'] ?? '1');
 $bookingPlan = trim($_POST['booking_plan'] ?? 'Daily Booking');
 $paymentMode = trim($_POST['payment_mode'] ?? 'Cash on Delivery');
 
+/*
+|--------------------------------------------------------------------------
+| NEW: BOOKING HANDOVER ADDRESS
+|--------------------------------------------------------------------------
+| These details belong to this booking, not the user's profile.
+*/
+
+$bookingAddress = trim($_POST['booking_address'] ?? '');
+$bookingCity    = trim($_POST['booking_city'] ?? '');
+$bookingPincode = trim($_POST['booking_pincode'] ?? '');
 
 /*
 |--------------------------------------------------------------------------
@@ -35,15 +63,50 @@ if (
     $endDate === '' ||
     $totalPrice === ''
 ) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Required booking fields are missing"
-    ]);
-
-    exit();
+    sendResponse(
+        "error",
+        "Required booking fields are missing"
+    );
 }
 
+/*
+|--------------------------------------------------------------------------
+| VALIDATE NEW ADDRESS FIELDS
+|--------------------------------------------------------------------------
+*/
+
+if (
+    $bookingAddress === '' ||
+    $bookingCity === '' ||
+    $bookingPincode === ''
+) {
+    sendResponse(
+        "error",
+        "Please enter the booking address, city and pincode"
+    );
+}
+
+if (strlen($bookingAddress) > 1000) {
+    sendResponse("error", "Booking address is too long");
+}
+
+if (strlen($bookingCity) > 100) {
+    sendResponse("error", "City name is too long");
+}
+
+/*
+|--------------------------------------------------------------------------
+| VALIDATE PINCODE
+|--------------------------------------------------------------------------
+| Accepts a six-digit Indian pincode.
+*/
+
+if (!preg_match('/^[1-9][0-9]{5}$/', $bookingPincode)) {
+    sendResponse(
+        "error",
+        "Please enter a valid 6-digit pincode"
+    );
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -55,31 +118,37 @@ if (
     !ctype_digit($vehicleId) ||
     !ctype_digit($quantity)
 ) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Invalid vehicle or quantity"
-    ]);
-
-    exit();
+    sendResponse(
+        "error",
+        "Invalid vehicle or quantity"
+    );
 }
 
+if (
+    !is_numeric($totalPrice) ||
+    !is_finite((float)$totalPrice) ||
+    (float)$totalPrice < 0
+) {
+    sendResponse(
+        "error",
+        "Invalid total price"
+    );
+}
 
 $vehicleId = (int)$vehicleId;
 $quantity = (int)$quantity;
 $totalPrice = (float)$totalPrice;
 
-
-if ($quantity <= 0) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Quantity must be greater than zero"
-    ]);
-
-    exit();
+if ($vehicleId <= 0) {
+    sendResponse("error", "Invalid vehicle ID");
 }
 
+if ($quantity <= 0) {
+    sendResponse(
+        "error",
+        "Quantity must be greater than zero"
+    );
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -98,23 +167,11 @@ $sqlVehicle = "
     LIMIT 1
 ";
 
-
-$stmtVehicle = mysqli_prepare(
-    $conn,
-    $sqlVehicle
-);
-
+$stmtVehicle = mysqli_prepare($conn, $sqlVehicle);
 
 if (!$stmtVehicle) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Database error"
-    ]);
-
-    exit();
+    sendResponse("error", "Database error while checking vehicle");
 }
-
 
 mysqli_stmt_bind_param(
     $stmtVehicle,
@@ -122,44 +179,24 @@ mysqli_stmt_bind_param(
     $vehicleId
 );
 
+if (!mysqli_stmt_execute($stmtVehicle)) {
+    mysqli_stmt_close($stmtVehicle);
+    sendResponse("error", "Unable to check vehicle information");
+}
 
-mysqli_stmt_execute(
-    $stmtVehicle
-);
-
-
-$resultVehicle = mysqli_stmt_get_result(
-    $stmtVehicle
-);
-
+$resultVehicle = mysqli_stmt_get_result($stmtVehicle);
 
 if (
     !$resultVehicle ||
     mysqli_num_rows($resultVehicle) === 0
 ) {
-
-    mysqli_stmt_close(
-        $stmtVehicle
-    );
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Vehicle not found"
-    ]);
-
-    exit();
+    mysqli_stmt_close($stmtVehicle);
+    sendResponse("error", "Vehicle not found");
 }
 
+$vehicle = mysqli_fetch_assoc($resultVehicle);
 
-$vehicle = mysqli_fetch_assoc(
-    $resultVehicle
-);
-
-
-mysqli_stmt_close(
-    $stmtVehicle
-);
-
+mysqli_stmt_close($stmtVehicle);
 
 /*
 |--------------------------------------------------------------------------
@@ -167,29 +204,21 @@ mysqli_stmt_close(
 |--------------------------------------------------------------------------
 */
 
-$ownerPhone = trim(
-    $vehicle['owner_phone'] ?? ''
-);
-
+$ownerPhone = trim($vehicle['owner_phone'] ?? '');
 
 if ($ownerPhone === '') {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Vehicle owner information is missing"
-    ]);
-
-    exit();
+    sendResponse(
+        "error",
+        "Vehicle owner information is missing"
+    );
 }
-
 
 /*
 |--------------------------------------------------------------------------
 | CHECK ALREADY RESERVED QUANTITY
 |--------------------------------------------------------------------------
-|
-| Only pending and accepted bookings reserve vehicles.
-|
+| Only pending and accepted bookings reserve stock.
+| The existing date-overlap logic is preserved.
 */
 
 $sqlOverlap = "
@@ -197,28 +226,16 @@ $sqlOverlap = "
         IFNULL(SUM(quantity), 0) AS used
     FROM bookings
     WHERE vehicle_id = ?
-    AND status IN ('pending', 'accepted')
-    AND start_date <= ?
-    AND end_date >= ?
+      AND status IN ('pending', 'accepted')
+      AND start_date <= ?
+      AND end_date >= ?
 ";
 
-
-$stmtOverlap = mysqli_prepare(
-    $conn,
-    $sqlOverlap
-);
-
+$stmtOverlap = mysqli_prepare($conn, $sqlOverlap);
 
 if (!$stmtOverlap) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Database error"
-    ]);
-
-    exit();
+    sendResponse("error", "Database error while checking availability");
 }
-
 
 mysqli_stmt_bind_param(
     $stmtOverlap,
@@ -228,36 +245,21 @@ mysqli_stmt_bind_param(
     $startDate
 );
 
+if (!mysqli_stmt_execute($stmtOverlap)) {
+    mysqli_stmt_close($stmtOverlap);
+    sendResponse("error", "Unable to check vehicle availability");
+}
 
-mysqli_stmt_execute(
-    $stmtOverlap
-);
-
-
-$resultOverlap = mysqli_stmt_get_result(
-    $stmtOverlap
-);
-
+$resultOverlap = mysqli_stmt_get_result($stmtOverlap);
 
 $used = 0;
 
-
 if ($resultOverlap) {
-
-    $row = mysqli_fetch_assoc(
-        $resultOverlap
-    );
-
-    $used = (int)(
-        $row['used'] ?? 0
-    );
+    $row = mysqli_fetch_assoc($resultOverlap);
+    $used = (int)($row['used'] ?? 0);
 }
 
-
-mysqli_stmt_close(
-    $stmtOverlap
-);
-
+mysqli_stmt_close($stmtOverlap);
 
 /*
 |--------------------------------------------------------------------------
@@ -265,32 +267,34 @@ mysqli_stmt_close(
 |--------------------------------------------------------------------------
 */
 
-$stock = (int)$vehicle['stock'];
-
+$stock = (int)($vehicle['stock'] ?? 0);
 $available = $stock - $used;
 
-
 if ($quantity > $available) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" =>
-            "Only " .
-            max(0, $available) .
-            " vehicle(s) available for these dates"
-    ]);
-
-    exit();
+    sendResponse(
+        "error",
+        "Only " . max(0, $available) .
+        " vehicle(s) available for these dates"
+    );
 }
-
 
 /*
 |--------------------------------------------------------------------------
-| INSERT BOOKING
+| INSERT BOOKING AND ADDRESS
 |--------------------------------------------------------------------------
+| Both inserts are grouped in a transaction.
 |
-| owner_phone is stored with the booking.
-|
+| IMPORTANT:
+| - bookings must support transactions (normally InnoDB).
+| - rental_booking_addresses must exist before this code runs.
+*/
+
+mysqli_begin_transaction($conn);
+
+/*
+|--------------------------------------------------------------------------
+| INSERT ORIGINAL BOOKING RECORD
+|--------------------------------------------------------------------------
 */
 
 $sqlBooking = "
@@ -310,23 +314,12 @@ $sqlBooking = "
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
 ";
 
-
-$stmtBooking = mysqli_prepare(
-    $conn,
-    $sqlBooking
-);
-
+$stmtBooking = mysqli_prepare($conn, $sqlBooking);
 
 if (!$stmtBooking) {
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Database error"
-    ]);
-
-    exit();
+    mysqli_rollback($conn);
+    sendResponse("error", "Unable to prepare booking");
 }
-
 
 mysqli_stmt_bind_param(
     $stmtBooking,
@@ -342,52 +335,87 @@ mysqli_stmt_bind_param(
     $paymentMode
 );
 
-
 if (!mysqli_stmt_execute($stmtBooking)) {
-
-    mysqli_stmt_close(
-        $stmtBooking
-    );
-
-    echo json_encode([
-        "status" => "error",
-        "message" => "Booking failed"
-    ]);
-
-    exit();
+    mysqli_stmt_close($stmtBooking);
+    mysqli_rollback($conn);
+    sendResponse("error", "Booking failed");
 }
 
+$bookingId = mysqli_insert_id($conn);
 
-$bookingId = mysqli_insert_id(
-    $conn
+mysqli_stmt_close($stmtBooking);
+
+/*
+|--------------------------------------------------------------------------
+| INSERT NEW BOOKING ADDRESS
+|--------------------------------------------------------------------------
+*/
+
+$sqlAddress = "
+    INSERT INTO rental_booking_addresses
+    (
+        booking_id,
+        address,
+        city,
+        pincode
+    )
+    VALUES (?, ?, ?, ?)
+";
+
+$stmtAddress = mysqli_prepare($conn, $sqlAddress);
+
+if (!$stmtAddress) {
+    mysqli_rollback($conn);
+    sendResponse(
+        "error",
+        "Unable to save booking address. Please try again."
+    );
+}
+
+mysqli_stmt_bind_param(
+    $stmtAddress,
+    "isss",
+    $bookingId,
+    $bookingAddress,
+    $bookingCity,
+    $bookingPincode
 );
 
+if (!mysqli_stmt_execute($stmtAddress)) {
+    mysqli_stmt_close($stmtAddress);
+    mysqli_rollback($conn);
+    sendResponse(
+        "error",
+        "Unable to save booking address. Please try again."
+    );
+}
 
-mysqli_stmt_close(
-    $stmtBooking
-);
+mysqli_stmt_close($stmtAddress);
 
+/*
+|--------------------------------------------------------------------------
+| COMMIT BOOKING AND ADDRESS
+|--------------------------------------------------------------------------
+*/
+
+if (!mysqli_commit($conn)) {
+    mysqli_rollback($conn);
+    sendResponse(
+        "error",
+        "Unable to complete booking. Please try again."
+    );
+}
 
 /*
 |--------------------------------------------------------------------------
 | CHECK OWNER NOTIFICATION PREFERENCE
 |--------------------------------------------------------------------------
-|
-| Notification preference is stored in the users table.
-|
-| notification_booking = 1
-| → Booking notification is ON
-|
-| notification_booking = 0
-| → Booking notification is OFF
-|
-| If the owner record or preference cannot be found,
-| notification remains ON by default.
-|
+| notification_booking = 1: ON
+| notification_booking = 0: OFF
+| Missing preference defaults to ON.
 */
 
 $sendNotification = true;
-
 
 $sqlPreference = "
     SELECT notification_booking
@@ -396,49 +424,32 @@ $sqlPreference = "
     LIMIT 1
 ";
 
-
-$stmtPreference = mysqli_prepare(
-    $conn,
-    $sqlPreference
-);
-
+$stmtPreference = mysqli_prepare($conn, $sqlPreference);
 
 if ($stmtPreference) {
-
     mysqli_stmt_bind_param(
         $stmtPreference,
         "s",
         $ownerPhone
     );
 
-    mysqli_stmt_execute(
-        $stmtPreference
-    );
+    if (mysqli_stmt_execute($stmtPreference)) {
+        $resultPreference = mysqli_stmt_get_result($stmtPreference);
 
-    $resultPreference = mysqli_stmt_get_result(
-        $stmtPreference
-    );
+        if (
+            $resultPreference &&
+            mysqli_num_rows($resultPreference) > 0
+        ) {
+            $preference = mysqli_fetch_assoc($resultPreference);
 
-    if (
-        $resultPreference &&
-        mysqli_num_rows($resultPreference) > 0
-    ) {
-
-        $preference = mysqli_fetch_assoc(
-            $resultPreference
-        );
-
-        $sendNotification =
-            ((int)(
-                $preference['notification_booking'] ?? 1
-            ) === 1);
+            $sendNotification = (
+                (int)($preference['notification_booking'] ?? 1) === 1
+            );
+        }
     }
 
-    mysqli_stmt_close(
-        $stmtPreference
-    );
+    mysqli_stmt_close($stmtPreference);
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -447,16 +458,14 @@ if ($stmtPreference) {
 */
 
 if ($sendNotification) {
-
     $title = "New Booking Request";
 
     $message =
         "A customer has requested to book your " .
-        $vehicle['vehicle_name'] .
+        ($vehicle['vehicle_name'] ?? 'vehicle') .
         ".";
 
     $type = "booking";
-
 
     $sqlNotification = "
         INSERT INTO notifications
@@ -470,15 +479,12 @@ if ($sendNotification) {
         VALUES (?, ?, ?, ?, 0)
     ";
 
-
     $stmtNotification = mysqli_prepare(
         $conn,
         $sqlNotification
     );
 
-
     if ($stmtNotification) {
-
         mysqli_stmt_bind_param(
             $stmtNotification,
             "ssss",
@@ -488,16 +494,10 @@ if ($sendNotification) {
             $type
         );
 
-        mysqli_stmt_execute(
-            $stmtNotification
-        );
-
-        mysqli_stmt_close(
-            $stmtNotification
-        );
+        mysqli_stmt_execute($stmtNotification);
+        mysqli_stmt_close($stmtNotification);
     }
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -505,12 +505,14 @@ if ($sendNotification) {
 |--------------------------------------------------------------------------
 */
 
-echo json_encode([
-    "status" => "success",
-    "message" => "Booking request submitted successfully",
-    "booking_id" => $bookingId,
-    "owner_phone" => $ownerPhone,
-    "notification_sent" => $sendNotification
-]);
+sendResponse(
+    "success",
+    "Booking request submitted successfully",
+    [
+        "booking_id" => $bookingId,
+        "owner_phone" => $ownerPhone,
+        "notification_sent" => $sendNotification
+    ]
+);
 
 ?>
