@@ -1,3 +1,4 @@
+
 <?php
 
 include "db.php";
@@ -5,6 +6,7 @@ include "db.php";
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
+mysqli_set_charset($conn, "utf8mb4");
 
 /*
 |--------------------------------------------------------------------------
@@ -15,27 +17,21 @@ header("Content-Type: application/json; charset=UTF-8");
 $owner = trim($_GET['owner_phone'] ?? '');
 
 if ($owner === '') {
-
     echo json_encode([]);
-
     exit();
 }
-
 
 /*
 |--------------------------------------------------------------------------
 | GET OWNER BOOKINGS
 |--------------------------------------------------------------------------
 |
-| The owner is identified from the VEHICLES table.
+| Existing booking and vehicle information is preserved.
 |
-| bookings.vehicle_id
-|        ↓
-| vehicles.id
-|        ↓
-| vehicles.owner_phone
+| NEW:
+| rental_booking_addresses stores the handover address
+| entered specifically for each rental booking.
 |
-|--------------------------------------------------------------------------
 */
 
 $sql = "
@@ -66,31 +62,35 @@ $sql = "
         b.pickup_condition,
         b.return_condition,
         b.pickup_confirmed,
-        b.return_confirmed
+        b.return_confirmed,
+
+        /* NEW: CUSTOMER BOOKING ADDRESS */
+        rba.address AS booking_address,
+        rba.city AS booking_city,
+        rba.pincode AS booking_pincode
 
     FROM bookings b
 
     INNER JOIN vehicles v
         ON b.vehicle_id = v.id
 
+    LEFT JOIN rental_booking_addresses rba
+        ON rba.booking_id = b.id
+
     WHERE v.owner_phone = ?
 
     ORDER BY b.id DESC
 ";
 
-
 $stmt = mysqli_prepare($conn, $sql);
 
 if (!$stmt) {
-
     echo json_encode([
         "status" => "error",
         "message" => "Database Error"
     ]);
-
     exit();
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -104,10 +104,18 @@ mysqli_stmt_bind_param(
     $owner
 );
 
-mysqli_stmt_execute($stmt);
+if (!mysqli_stmt_execute($stmt)) {
+    mysqli_stmt_close($stmt);
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Unable to retrieve owner bookings"
+    ]);
+
+    exit();
+}
 
 $result = mysqli_stmt_get_result($stmt);
-
 
 /*
 |--------------------------------------------------------------------------
@@ -130,16 +138,14 @@ while ($row = mysqli_fetch_assoc($result)) {
         $row['vehicle_image'] !== '' &&
         strpos($row['vehicle_image'], 'http') !== 0
     ) {
-
         $row['vehicle_image'] =
             "https://rental-backend-production-8cbf.up.railway.app/"
             . ltrim($row['vehicle_image'], "/");
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | SAFE DEFAULT VALUES
+    | EXISTING VEHICLE DEFAULTS
     |--------------------------------------------------------------------------
     */
 
@@ -164,10 +170,9 @@ while ($row = mysqli_fetch_assoc($result)) {
     $row['status'] =
         $row['status'] ?? 'pending';
 
-
     /*
     |--------------------------------------------------------------------------
-    | PICKUP / RETURN DEFAULTS
+    | EXISTING PICKUP / RETURN DEFAULTS
     |--------------------------------------------------------------------------
     */
 
@@ -189,10 +194,29 @@ while ($row = mysqli_fetch_assoc($result)) {
     $row['return_confirmed'] =
         $row['return_confirmed'] ?? '0';
 
+    /*
+    |--------------------------------------------------------------------------
+    | NEW: BOOKING ADDRESS DEFAULTS
+    |--------------------------------------------------------------------------
+    */
+
+    $row['booking_address'] =
+        $row['booking_address'] ?? '';
+
+    $row['booking_city'] =
+        $row['booking_city'] ?? '';
+
+    $row['booking_pincode'] =
+        $row['booking_pincode'] ?? '';
+
+    /*
+    |--------------------------------------------------------------------------
+    | ADD BOOKING TO RESPONSE
+    |--------------------------------------------------------------------------
+    */
 
     $data[] = $row;
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -201,7 +225,6 @@ while ($row = mysqli_fetch_assoc($result)) {
 */
 
 mysqli_stmt_close($stmt);
-
 
 /*
 |--------------------------------------------------------------------------
