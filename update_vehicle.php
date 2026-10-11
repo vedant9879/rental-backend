@@ -1,255 +1,337 @@
-<?php
 
+<?php
 header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json; charset=UTF-8");
 
-// =====================================================
-// METHOD CHECK
-// =====================================================
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Only POST requests are allowed"
-    ]);
+function respond($status, $message, $httpCode = 200, $extra = []) {
+    http_response_code($httpCode);
+    echo json_encode(
+        array_merge([
+            "status" => $status,
+            "message" => $message
+        ], $extra),
+        JSON_UNESCAPED_SLASHES
+    );
     exit;
 }
 
-// =====================================================
-// IMAGE VALIDATION
-// =====================================================
-if (!isset($_FILES['vehicle_image'])) {
-    http_response_code(400);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Vehicle image is required"
-    ]);
+if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
+    http_response_code(204);
     exit;
 }
 
-$file = $_FILES['vehicle_image'];
-
-if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
-    $uploadError = $file['error'] ?? UPLOAD_ERR_NO_FILE;
-
-    $messages = [
-        UPLOAD_ERR_INI_SIZE   => "Image exceeds server upload_max_filesize",
-        UPLOAD_ERR_FORM_SIZE  => "Image exceeds form upload size",
-        UPLOAD_ERR_PARTIAL    => "Image was only partially uploaded",
-        UPLOAD_ERR_NO_FILE    => "No image file was received",
-        UPLOAD_ERR_NO_TMP_DIR => "Server temporary upload directory is missing",
-        UPLOAD_ERR_CANT_WRITE => "Server could not write the uploaded image",
-        UPLOAD_ERR_EXTENSION  => "A PHP extension stopped the upload"
-    ];
-
-    http_response_code(400);
-    echo json_encode([
-        "status" => "error",
-        "message" => $messages[$uploadError] ?? "Image upload failed",
-        "upload_error" => $uploadError
-    ]);
-    exit;
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    respond("error", "Only POST requests are allowed", 405);
 }
 
-if (
-    empty($file['tmp_name']) ||
-    !is_uploaded_file($file['tmp_name'])
-) {
-    http_response_code(400);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Uploaded image temporary file is invalid"
-    ]);
-    exit;
+require_once __DIR__ . "/db.php";
+
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    respond("error", "Database connection is unavailable", 500);
 }
 
-$maxSize = 10 * 1024 * 1024;
+$conn->set_charset("utf8mb4");
 
-if (($file['size'] ?? 0) <= 0 || $file['size'] > $maxSize) {
-    http_response_code(413);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Image must be larger than 0 bytes and 10 MB or less"
-    ]);
-    exit;
+$vehicleId = filter_input(INPUT_POST, "vehicle_id", FILTER_VALIDATE_INT);
+
+if (!$vehicleId || $vehicleId <= 0) {
+    respond("error", "A valid vehicle_id is required", 400);
 }
 
-if (!class_exists('finfo')) {
-    http_response_code(500);
-    echo json_encode([
-        "status" => "error",
-        "message" => "PHP fileinfo extension is not enabled"
-    ]);
-    exit;
-}
-
-$finfo = finfo_open(FILEINFO_MIME_TYPE);
-if ($finfo === false) {
-    http_response_code(500);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Unable to inspect uploaded image type"
-    ]);
-    exit;
-}
-
-$mimeType = finfo_file($finfo, $file['tmp_name']);
-finfo_close($finfo);
-
-$allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-
-if (!in_array($mimeType, $allowedTypes, true)) {
-    http_response_code(415);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Only JPG, PNG and WEBP images are allowed"
-    ]);
-    exit;
-}
-
-if (@getimagesize($file['tmp_name']) === false) {
-    http_response_code(415);
-    echo json_encode([
-        "status" => "error",
-        "message" => "The selected file is not a valid image"
-    ]);
-    exit;
-}
-
-if (!function_exists('curl_init') || !class_exists('CURLFile')) {
-    http_response_code(500);
-    echo json_encode([
-        "status" => "error",
-        "message" => "PHP cURL extension is not enabled"
-    ]);
-    exit;
-}
-
-// =====================================================
-// CLOUDINARY CONFIGURATION
-// All three values must belong to the same Cloudinary account.
-// =====================================================
-$cloudName = trim((string) getenv("CLOUDINARY_CLOUD_NAME"));
-$apiKey = trim((string) getenv("CLOUDINARY_API_KEY"));
-$apiSecret = trim((string) getenv("CLOUDINARY_API_SECRET"));
-
-if ($cloudName === "" || $apiKey === "" || $apiSecret === "") {
-    http_response_code(500);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Cloudinary configuration is missing. Check Railway Variables."
-    ]);
-    exit;
-}
-
-// =====================================================
-// CLOUDINARY SIGNED IMAGE UPLOAD
-// =====================================================
-$folder = "rentx/vehicles";
-$timestamp = time();
-
-$cloudinaryUrl =
-    "https://api.cloudinary.com/v1_1/" .
-    rawurlencode($cloudName) .
-    "/image/upload";
-
-/*
- * Cloudinary signed parameters must be alphabetically sorted.
- * These are the only signed parameters: folder and timestamp.
- * Do not include api_key, file, or signature in the signature string.
- */
-$signatureString =
-    "folder=" . $folder .
-    "&timestamp=" . $timestamp .
-    $apiSecret;
-
-$signature = sha1($signatureString);
-
-$postFields = [
-    "file" => new CURLFile(
-        $file['tmp_name'],
-        $mimeType,
-        basename((string) ($file['name'] ?? "vehicle_image"))
-    ),
-    "folder" => $folder,
-    "timestamp" => $timestamp,
-    "api_key" => $apiKey,
-    "signature" => $signature
-];
-
-$ch = curl_init();
-
-curl_setopt_array($ch, [
-    CURLOPT_URL => $cloudinaryUrl,
-    CURLOPT_POST => true,
-    CURLOPT_POSTFIELDS => $postFields,
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_CONNECTTIMEOUT => 20,
-    CURLOPT_TIMEOUT => 60,
-    CURLOPT_SSL_VERIFYPEER => true,
-    CURLOPT_SSL_VERIFYHOST => 2
-]);
-
-$response = curl_exec($ch);
-$curlError = curl_error($ch);
-$httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-
-// =====================================================
-// CONNECTION ERROR
-// =====================================================
-if ($response === false) {
-    http_response_code(502);
-    echo json_encode([
-        "status" => "error",
-        "message" => "Unable to connect to Cloudinary",
-        "error" => $curlError
-    ]);
-    exit;
-}
-
-$cloudinaryData = json_decode($response, true);
-
-// =====================================================
-// CLOUDINARY ERROR
-// =====================================================
-if (
-    $httpCode < 200 ||
-    $httpCode >= 300 ||
-    !is_array($cloudinaryData) ||
-    empty($cloudinaryData['secure_url'])
-) {
-    http_response_code(502);
-
-    $message = "Cloudinary upload failed";
-    if (
-        is_array($cloudinaryData) &&
-        !empty($cloudinaryData['error']['message'])
-    ) {
-        $message = (string) $cloudinaryData['error']['message'];
+function postValue($key) {
+    if (!isset($_POST[$key]) || is_array($_POST[$key])) {
+        return null;
     }
 
-    echo json_encode([
-        "status" => "error",
-        "message" => $message,
-        "http_code" => $httpCode
-    ]);
-    exit;
+    return trim((string) $_POST[$key]);
 }
 
-// =====================================================
-// SUCCESS RESPONSE (Android expects status + image_url)
-// =====================================================
-echo json_encode([
-    "status" => "success",
-    "message" => "Vehicle image uploaded successfully",
-    "image_url" => $cloudinaryData['secure_url'],
-    "public_id" => $cloudinaryData['public_id'] ?? "",
-    "width" => $cloudinaryData['width'] ?? 0,
-    "height" => $cloudinaryData['height'] ?? 0,
-    "format" => $cloudinaryData['format'] ?? "",
-    "bytes" => $cloudinaryData['bytes'] ?? 0
-], JSON_UNESCAPED_SLASHES);
+function normalizeType($value) {
+    $value = strtolower(trim((string) $value));
+    $value = str_replace(["_", "-"], " ", $value);
 
-exit;
+    if (
+        strpos($value, "transport") !== false ||
+        strpos($value, "goods") !== false ||
+        strpos($value, "logistic") !== false
+    ) {
+        return "transport";
+    }
+
+    if (
+        strpos($value, "buy") !== false ||
+        strpos($value, "sell") !== false ||
+        strpos($value, "marketplace") !== false ||
+        strpos($value, "sale") !== false
+    ) {
+        return "buy_sell";
+    }
+
+    if (
+        strpos($value, "rent") !== false ||
+        strpos($value, "rental") !== false
+    ) {
+        return "rent";
+    }
+
+    return "";
+}
+
+/*
+ * Read the actual vehicle record first.
+ * The listing type stored in the database is authoritative;
+ * this endpoint does not allow the client to change listing type.
+ */
+$stmt = $conn->prepare(
+    "SELECT * FROM vehicles WHERE id = ? LIMIT 1"
+);
+
+if (!$stmt) {
+    respond("error", "Unable to prepare vehicle lookup", 500);
+}
+
+$stmt->bind_param("i", $vehicleId);
+
+if (!$stmt->execute()) {
+    $stmt->close();
+    respond("error", "Unable to load vehicle", 500);
+}
+
+$result = $stmt->get_result();
+$vehicle = $result ? $result->fetch_assoc() : null;
+$stmt->close();
+
+if (!$vehicle) {
+    respond("error", "Vehicle not found", 404);
+}
+
+/*
+ * Inspect the schema so optional columns are only updated
+ * when they actually exist in this database.
+ */
+$columnsResult = $conn->query("SHOW COLUMNS FROM `vehicles`");
+
+if (!$columnsResult) {
+    respond("error", "Unable to inspect vehicle database columns", 500);
+}
+
+$columns = [];
+
+while ($column = $columnsResult->fetch_assoc()) {
+    $columns[$column["Field"]] = $column;
+}
+
+$columnsResult->free();
+
+$listingType = normalizeType($vehicle["listing_type"] ?? "");
+
+if ($listingType === "") {
+    /*
+     * Some databases may use a different listing discriminator.
+     * Check service_type only when it identifies transport.
+     */
+    $listingType = normalizeType($vehicle["service_type"] ?? "");
+}
+
+if ($listingType === "") {
+    respond(
+        "error",
+        "Unable to determine listing type from the database. Check listing_type.",
+        422
+    );
+}
+
+/*
+ * Validate values and create a prepared UPDATE.
+ * Only these explicitly approved fields can be updated.
+ */
+$commonFields = [
+    "vehicle_name" => "text",
+    "city"         => "text",
+    "address"      => "text"
+];
+
+$rentFields = [
+    "price_per_day" => "number",
+    "price_6hr"     => "number",
+    "price_12hr"    => "number",
+    "quantity"      => "integer",
+    "deposit"       => "number"
+];
+
+$buySellFields = [
+    "selling_price"      => "number",
+    "vehicle_condition"  => "text",
+    "manufacturing_year" => "integer",
+    "kilometers_driven"  => "integer",
+    "ownership"          => "text"
+];
+
+$transportFields = [
+    "service_type"             => "text",
+    "transport_base_fare"      => "number",
+    "transport_minimum_fare"   => "number",
+    "transport_per_km"         => "number",
+    "transport_driver_charge"  => "number",
+    "transport_waiting_charge" => "number"
+];
+
+$allowedFields = $commonFields;
+
+if ($listingType === "rent") {
+    $allowedFields = array_merge($allowedFields, $rentFields);
+} elseif ($listingType === "buy_sell") {
+    $allowedFields = array_merge($allowedFields, $buySellFields);
+} elseif ($listingType === "transport") {
+    $allowedFields = array_merge($allowedFields, $transportFields);
+}
+
+$updates = [];
+$values = [];
+$types = "";
+
+foreach ($allowedFields as $field => $kind) {
+
+    // Do not attempt to update columns absent from this database.
+    if (!isset($columns[$field])) {
+        continue;
+    }
+
+    // Common fields must be supplied by the client.
+    if (array_key_exists($field, $commonFields) && postValue($field) === null) {
+        respond("error", "Missing required field: " . $field, 400);
+    }
+
+    $value = postValue($field);
+
+    // Do not accidentally overwrite an existing value if a parameter
+    // was not sent by an older Android client.
+    if ($value === null) {
+        continue;
+    }
+
+    if ($kind === "text") {
+        if ($field === "vehicle_name" && $value === "") {
+            respond("error", "Vehicle name cannot be empty", 422);
+        }
+
+        if (($field === "city" || $field === "address") && $value === "") {
+            respond("error", ucfirst($field) . " cannot be empty", 422);
+        }
+
+        $updates[$field] = $value;
+        $values[] = $value;
+        $types .= "s";
+        continue;
+    }
+
+    /*
+     * Blank optional numeric values:
+     * use NULL if the column permits NULL; otherwise preserve its
+     * existing value rather than converting blank input to zero.
+     */
+    if ($value === "") {
+        if (($columns[$field]["Null"] ?? "NO") === "YES") {
+            $updates[$field] = null;
+            $values[] = null;
+            $types .= "s";
+        }
+        continue;
+    }
+
+    if (!is_numeric($value)) {
+        respond("error", "Invalid numeric value for " . $field, 422);
+    }
+
+    $number = (float) $value;
+
+    if (!is_finite($number) || $number < 0) {
+        respond("error", $field . " cannot be negative", 422);
+    }
+
+    if ($kind === "integer") {
+        if (filter_var($value, FILTER_VALIDATE_INT) === false) {
+            respond("error", $field . " must be a whole number", 422);
+        }
+
+        $integer = (int) $value;
+
+        if ($field === "quantity" && $integer < 1) {
+            respond("error", "Quantity must be at least 1", 422);
+        }
+
+        if (
+            $field === "manufacturing_year" &&
+            ($integer < 1900 || $integer > ((int) date("Y") + 1))
+        ) {
+            respond("error", "Manufacturing year is invalid", 422);
+        }
+
+        $updates[$field] = $integer;
+        $values[] = $integer;
+        $types .= "i";
+    } else {
+        $updates[$field] = $value;
+        $values[] = $value;
+        $types .= "s";
+    }
+}
+
+if (empty($updates)) {
+    respond("error", "No compatible fields were provided for update", 422);
+}
+
+$setParts = [];
+
+foreach (array_keys($updates) as $field) {
+    // Field names come only from the hard-coded allowlist above.
+    $setParts[] = "`" . $field . "` = ?";
+}
+
+$sql = "UPDATE `vehicles` SET " .
+       implode(", ", $setParts) .
+       " WHERE `id` = ? LIMIT 1";
+
+$values[] = $vehicleId;
+$types .= "i";
+
+$updateStmt = $conn->prepare($sql);
+
+if (!$updateStmt) {
+    respond("error", "Unable to prepare vehicle update", 500);
+}
+
+/*
+ * mysqli bind_param requires references.
+ */
+$bindArgs = [$types];
+
+foreach ($values as $index => $value) {
+    $bindArgs[] = &$values[$index];
+}
+
+if (!call_user_func_array([$updateStmt, "bind_param"], $bindArgs)) {
+    $updateStmt->close();
+    respond("error", "Unable to bind vehicle update values", 500);
+}
+
+if (!$updateStmt->execute()) {
+    $updateStmt->close();
+    respond("error", "Database update failed", 500);
+}
+
+$updateStmt->close();
+
+respond(
+    "success",
+    "Updated Successfully",
+    200,
+    [
+        "vehicle_id" => (int) $vehicleId,
+        "listing_type" => $listingType,
+        "updated_fields" => array_keys($updates)
+    ]
+);
 ?>
