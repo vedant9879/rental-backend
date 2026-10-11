@@ -299,9 +299,13 @@ try {
             throw new Exception("Transport request not found");
         }
 
-        if (strtolower(trim((string)$record["status"])) !== "accepted") {
+        $transportStatus = strtolower(trim((string)$record["status"]));
+
+        // Allow payment after the owner accepts the request or marks it delivered.
+        // A duplicate active/paid payment is still blocked below.
+        if (!in_array($transportStatus, ["accepted", "delivered"], true)) {
             throw new Exception(
-                "Transport request must be accepted before payment"
+                "Transport request must be accepted or delivered before payment"
             );
         }
 
