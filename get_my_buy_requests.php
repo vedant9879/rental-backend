@@ -23,6 +23,7 @@ $buyerPhone = trim(
 );
 
 if ($buyerPhone === "") {
+    http_response_code(400);
     echo json_encode([
         "status" => "error",
         "message" => "Buyer phone is required"
@@ -32,7 +33,11 @@ if ($buyerPhone === "") {
 
 /*
 |--------------------------------------------------------------------------
-| FETCH BUYER REQUESTS AND BOTH ADDRESSES
+| LOAD REQUESTS WITH THE CORRECT VEHICLE LISTING DETAILS
+|--------------------------------------------------------------------------
+| Keep the Android adapter's expected keys:
+| vehicle_name, vehicle_type, vehicle_image, selling_price,
+| address, city, listing_type.
 |--------------------------------------------------------------------------
 */
 
@@ -42,21 +47,22 @@ $sql = "
         br.vehicle_id,
         br.buyer_phone,
         br.seller_phone,
-        br.vehicle_name,
-        br.selling_price,
         br.status,
         br.buyer_message,
         br.created_at,
         br.updated_at,
 
-        v.vehicle_name AS listing_vehicle_name,
-        v.selling_price AS listing_selling_price,
-        v.address AS vehicle_address,
-        v.city AS vehicle_city,
+        v.vehicle_name AS vehicle_name,
+        v.vehicle_type AS vehicle_type,
+        v.vehicle_image AS vehicle_image,
+        v.selling_price AS selling_price,
+        v.address AS address,
+        v.city AS city,
+        v.listing_type AS listing_type,
 
-        br.buyer_address,
-        br.buyer_city,
-        br.buyer_pincode
+        br.buyer_address AS buyer_address,
+        br.buyer_city AS buyer_city,
+        br.buyer_pincode AS buyer_pincode
 
     FROM buy_requests br
 
@@ -71,26 +77,38 @@ $sql = "
 $stmt = mysqli_prepare($conn, $sql);
 
 if (!$stmt) {
-    error_log("get_my_buy_requests prepare error: " . mysqli_error($conn));
+    error_log(
+        "get_my_buy_requests prepare error: " .
+        mysqli_error($conn)
+    );
+
+    http_response_code(500);
 
     echo json_encode([
         "status" => "error",
         "message" => "Unable to prepare buyer requests query"
     ]);
+
     exit;
 }
 
 mysqli_stmt_bind_param($stmt, "s", $buyerPhone);
 
 if (!mysqli_stmt_execute($stmt)) {
-    error_log("get_my_buy_requests execute error: " . mysqli_stmt_error($stmt));
+    error_log(
+        "get_my_buy_requests execute error: " .
+        mysqli_stmt_error($stmt)
+    );
 
     mysqli_stmt_close($stmt);
+
+    http_response_code(500);
 
     echo json_encode([
         "status" => "error",
         "message" => "Unable to load your buy requests"
     ]);
+
     exit;
 }
 
@@ -99,34 +117,40 @@ $requests = [];
 
 while ($row = mysqli_fetch_assoc($result)) {
 
-    // Use listing details when saved request fields are empty.
-    if (empty($row["vehicle_name"])) {
-        $row["vehicle_name"] =
-            $row["listing_vehicle_name"] ?? "Vehicle";
+    // Return consistent values without replacing valid listing data.
+    $row["vehicle_name"] =
+        trim((string)($row["vehicle_name"] ?? ""));
+
+    if ($row["vehicle_name"] === "") {
+        $row["vehicle_name"] = "Vehicle";
     }
 
-    if (
-        !isset($row["selling_price"]) ||
-        (float)$row["selling_price"] <= 0
-    ) {
-        $row["selling_price"] =
-            $row["listing_selling_price"] ?? "0.00";
-    }
+    $row["vehicle_type"] =
+        trim((string)($row["vehicle_type"] ?? ""));
 
-    $row["vehicle_address"] =
-        $row["vehicle_address"] ?? "";
+    $row["vehicle_image"] =
+        trim((string)($row["vehicle_image"] ?? ""));
 
-    $row["vehicle_city"] =
-        $row["vehicle_city"] ?? "";
+    $row["selling_price"] =
+        $row["selling_price"] ?? "0.00";
+
+    $row["address"] =
+        trim((string)($row["address"] ?? ""));
+
+    $row["city"] =
+        trim((string)($row["city"] ?? ""));
+
+    $row["listing_type"] =
+        trim((string)($row["listing_type"] ?? ""));
 
     $row["buyer_address"] =
-        $row["buyer_address"] ?? "";
+        trim((string)($row["buyer_address"] ?? ""));
 
     $row["buyer_city"] =
-        $row["buyer_city"] ?? "";
+        trim((string)($row["buyer_city"] ?? ""));
 
     $row["buyer_pincode"] =
-        $row["buyer_pincode"] ?? "";
+        trim((string)($row["buyer_pincode"] ?? ""));
 
     $requests[] = $row;
 }
@@ -135,7 +159,7 @@ mysqli_stmt_close($stmt);
 
 echo json_encode(
     $requests,
-    JSON_UNESCAPED_SLASHES
+    JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
 
 ?>
