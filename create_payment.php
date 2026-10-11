@@ -237,9 +237,14 @@ try {
             throw new Exception("Vehicle purchase request not found");
         }
 
-        if (strtolower(trim((string)$record["status"])) !== "accepted") {
+        $purchaseStatus = strtolower(trim((string)$record["status"]));
+
+        // A seller may complete the sale before payment is settled.
+        // Allow payment for accepted or completed requests, but the duplicate
+        // payment check below still prevents a second active/paid payment.
+        if (!in_array($purchaseStatus, ["accepted", "completed"], true)) {
             throw new Exception(
-                "Purchase request must be accepted before payment"
+                "Purchase request must be accepted or completed before payment"
             );
         }
 
