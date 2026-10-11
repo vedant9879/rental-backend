@@ -1,17 +1,32 @@
 <?php
-header("Content-Type: application/json; charset=UTF-8");
+declare(strict_types=1);
+
 require_once __DIR__ . "/db.php";
+
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
+
 mysqli_report(MYSQLI_REPORT_OFF);
-function respond($statusCode, $data)
+
+function respond(int $code, array $data): void
 {
-    http_response_code($statusCode);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    http_response_code($code);
+    echo json_encode(
+        $data,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+    );
     exit;
 }
 
-if ($_SERVER["REQUEST_METHOD"] !== "GET" &&
-    $_SERVER["REQUEST_METHOD"] !== "POST") {
-    header("Allow: GET, POST");
+if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
+    http_response_code(204);
+    exit;
+}
+
+if (!in_array($_SERVER["REQUEST_METHOD"], ["GET", "POST"], true)) {
+    header("Allow: GET, POST, OPTIONS");
 
     respond(405, [
         "success" => false,
@@ -19,37 +34,45 @@ if ($_SERVER["REQUEST_METHOD"] !== "GET" &&
     ]);
 }
 
-try {
-    if (!isset($conn) || !($conn instanceof mysqli)) {
-        throw new Exception("Database connection unavailable");
-    }
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    respond(500, [
+        "success" => false,
+        "message" => "Database connection unavailable"
+    ]);
+}
 
+try {
     $conn->set_charset("utf8mb4");
 
-    // Support GET parameters, regular POST forms, and JSON POST bodies.
+    /*
+     * Read GET, form POST or JSON POST input.
+     */
     $input = $_GET;
 
     if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $input = $_POST;
-
         $contentType = $_SERVER["CONTENT_TYPE"] ?? "";
 
         if (stripos($contentType, "application/json") !== false) {
-            $rawBody = file_get_contents("php://input");
-            $jsonBody = json_decode($rawBody, true);
+            $raw = file_get_contents("php://input");
+            $json = json_decode($raw ?: "", true);
 
-            if (!is_array($jsonBody)) {
+            if (!is_array($json)) {
                 respond(400, [
                     "success" => false,
                     "message" => "Invalid JSON request body"
                 ]);
             }
 
-            $input = $jsonBody;
+            $input = array_merge($_POST, $json);
         }
     }
 
-    $phone = trim((string)($input["phone"] ?? ""));
+    $phone = preg_replace(
+        '/\s+/',
+        '',
+        trim((string)($input["phone"] ?? ""))
+    ) ?? "";
 
     if ($phone === "" || strlen($phone) > 30) {
         respond(400, [
@@ -58,6 +81,10 @@ try {
         ]);
     }
 
+    /*
+     * Return payments associated with the supplied phone.
+     * The schema matches the payments table you showed.
+     */
     $sql = "
         SELECT
             payment_reference,
@@ -106,8 +133,7 @@ try {
 
     while ($row = $result->fetch_assoc()) {
         $row["amount"] = (float)$row["amount"];
-        $row["service_record_id"] =
-            (int)$row["service_record_id"];
+        $row["service_record_id"] = (int)$row["service_record_id"];
 
         $payments[] = $row;
     }
