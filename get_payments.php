@@ -20,6 +20,11 @@ function respond(int $code, array $data): void
     exit;
 }
 
+function normalizePhone(mixed $value): string
+{
+    return preg_replace('/\s+/', '', trim((string)$value)) ?? "";
+}
+
 if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
     http_response_code(204);
     exit;
@@ -44,9 +49,7 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
 try {
     $conn->set_charset("utf8mb4");
 
-    /*
-     * Read GET, form POST or JSON POST input.
-     */
+    // Read GET, form POST, or JSON POST input.
     $input = $_GET;
 
     if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -64,15 +67,11 @@ try {
                 ]);
             }
 
-            $input = array_merge($_POST, $json);
+            $input = array_merge($input, $json);
         }
     }
 
-    $phone = preg_replace(
-        '/\s+/',
-        '',
-        trim((string)($input["phone"] ?? ""))
-    ) ?? "";
+    $phone = normalizePhone($input["phone"] ?? "");
 
     if ($phone === "" || strlen($phone) > 30) {
         respond(400, [
@@ -81,10 +80,6 @@ try {
         ]);
     }
 
-    /*
-     * Return payments associated with the supplied phone.
-     * The schema matches the payments table you showed.
-     */
     $sql = "
         SELECT
             payment_reference,
@@ -103,8 +98,8 @@ try {
             created_at,
             updated_at
         FROM payments
-        WHERE payer_phone = ?
-           OR recipient_phone = ?
+        WHERE REPLACE(REPLACE(payer_phone, ' ', ''), CHAR(9), '') = ?
+           OR REPLACE(REPLACE(recipient_phone, ' ', ''), CHAR(9), '') = ?
         ORDER BY created_at DESC
         LIMIT 100
     ";
@@ -112,21 +107,29 @@ try {
     $stmt = $conn->prepare($sql);
 
     if (!$stmt) {
-        throw new Exception("Unable to prepare payment query");
+        throw new RuntimeException(
+            "Unable to prepare payment query"
+        );
     }
 
     $stmt->bind_param("ss", $phone, $phone);
 
     if (!$stmt->execute()) {
         $stmt->close();
-        throw new Exception("Unable to retrieve payments");
+
+        throw new RuntimeException(
+            "Unable to retrieve payments"
+        );
     }
 
     $result = $stmt->get_result();
 
     if ($result === false) {
         $stmt->close();
-        throw new Exception("Unable to read payment results");
+
+        throw new RuntimeException(
+            "Unable to read payment results"
+        );
     }
 
     $payments = [];
@@ -138,6 +141,7 @@ try {
         $payments[] = $row;
     }
 
+    $result->free();
     $stmt->close();
 
     respond(200, [
