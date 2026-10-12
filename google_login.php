@@ -1,4 +1,3 @@
-```php
 <?php
 
 include "db.php";
@@ -13,16 +12,27 @@ function respond($status, $message, $extra = []) {
     exit();
 }
 
+/*
+|--------------------------------------------------------------------------
+| RECEIVE REQUEST
+|--------------------------------------------------------------------------
+*/
+
 $idToken = trim($_POST["id_token"] ?? "");
+$phone = trim($_POST["phone"] ?? "");
+$requestedName = trim($_POST["name"] ?? "");
+$requestedRole = trim($_POST["role"] ?? "user");
 
 if ($idToken === "") {
     respond("error", "Firebase ID token is required");
 }
 
 /*
- * Store this value as a Railway environment variable.
- * Never hardcode private credentials in your source code.
- */
+|--------------------------------------------------------------------------
+| FIREBASE API CONFIGURATION
+|--------------------------------------------------------------------------
+*/
+
 $apiKey = getenv("FIREBASE_WEB_API_KEY");
 
 if (!$apiKey) {
@@ -31,8 +41,11 @@ if (!$apiKey) {
 }
 
 /*
- * Ask Firebase to validate the ID token.
- */
+|--------------------------------------------------------------------------
+| VERIFY FIREBASE ID TOKEN
+|--------------------------------------------------------------------------
+*/
+
 $ch = curl_init(
     "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="
     . urlencode($apiKey)
@@ -54,10 +67,11 @@ curl_setopt_array($ch, [
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlError = curl_error($ch);
+
 curl_close($ch);
 
 if ($response === false || $curlError !== "") {
-    error_log("Firebase verification request failed");
+    error_log("Firebase token verification request failed");
     respond("error", "Unable to verify Google account. Try again.");
 }
 
@@ -74,7 +88,7 @@ $firebaseUser = $firebaseData["users"][0];
 
 $firebaseUid = $firebaseUser["localId"];
 $email = strtolower(trim($firebaseUser["email"] ?? ""));
-$name = trim($firebaseUser["displayName"] ?? "");
+$firebaseName = trim($firebaseUser["displayName"] ?? "");
 
 if (
     $email === "" ||
@@ -84,9 +98,11 @@ if (
 }
 
 /*
- * Only log in accounts already explicitly linked
- * to this Firebase UID.
- */
+|--------------------------------------------------------------------------
+| EXISTING GOOGLE ACCOUNT
+|--------------------------------------------------------------------------
+*/
+
 $sql = "
     SELECT id, name, email, phone, role
     FROM users
@@ -119,9 +135,11 @@ if ($user) {
 }
 
 /*
- * Do not silently link a Google account to an existing
- * password account just because its email matches.
- */
+|--------------------------------------------------------------------------
+| DO NOT SILENTLY LINK AN EXISTING ACCOUNT
+|--------------------------------------------------------------------------
+*/
+
 $sql = "
     SELECT id
     FROM users
@@ -151,13 +169,138 @@ if ($emailExists) {
 }
 
 /*
- * New Google users must complete the separate
- * phone-verification and account-creation flow.
- */
-respond(
-    "phone_verification_required",
-    "Verify your mobile number before creating your RentX account."
+|--------------------------------------------------------------------------
+| VALIDATE NEW GOOGLE REGISTRATION
+|--------------------------------------------------------------------------
+*/
+
+if ($phone === "") {
+    respond(
+        "phone_required",
+        "Enter your mobile number to create your RentX account."
+    );
+}
+
+/* Match the existing RentX 10-digit mobile-number convention. */
+if (!preg_match('/^[0-9]{10}$/', $phone)) {
+    respond(
+        "invalid_phone",
+        "Enter a valid 10-digit mobile number."
+    );
+}
+
+$name = $requestedName !== ""
+    ? $requestedName
+    : $firebaseName;
+
+if ($name === "") {
+    $name = "RentX User";
+}
+
+if (!in_array($requestedRole, ["user", "owner"], true)) {
+    $requestedRole = "user";
+}
+
+/*
+|--------------------------------------------------------------------------
+| CHECK UNIQUE PHONE NUMBER
+|--------------------------------------------------------------------------
+*/
+
+$sql = "
+    SELECT id
+    FROM users
+    WHERE phone = ?
+    LIMIT 1
+";
+
+$stmt = mysqli_prepare($conn, $sql);
+
+if (!$stmt) {
+    respond("error", "Database error");
+}
+
+mysqli_stmt_bind_param($stmt, "s", $phone);
+mysqli_stmt_execute($stmt);
+
+$result = mysqli_stmt_get_result($stmt);
+$phoneExists = $result && mysqli_num_rows($result) > 0;
+
+mysqli_stmt_close($stmt);
+
+if ($phoneExists) {
+    respond(
+        "phone_exists",
+        "This mobile number already belongs to a RentX account. Sign in using that account instead."
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| CREATE GOOGLE USER
+|--------------------------------------------------------------------------
+|
+| Google users do not need a local password.
+| No phone OTP is required by this flow.
+| The phone number must still be unique.
+*/
+
+$sql = "
+    INSERT INTO users
+        (name, email, phone, password, role, firebase_uid)
+    VALUES
+        (?, ?, ?, NULL, ?, ?)
+";
+
+$stmt = mysqli_prepare($conn, $sql);
+
+if (!$stmt) {
+    respond("error", "Unable to prepare account creation");
+}
+
+mysqli_stmt_bind_param(
+    $stmt,
+    "sssss",
+    $name,
+    $email,
+    $phone,
+    $requestedRole,
+    $firebaseUid
 );
 
+if (!mysqli_stmt_execute($stmt)) {
+    $errorCode = mysqli_stmt_errno($stmt);
+
+    mysqli_stmt_close($stmt);
+
+    if ($errorCode === 1062) {
+        respond(
+            "account_conflict",
+            "An account with these details already exists. Please sign in or use your existing account."
+        );
+    }
+
+    error_log("Google account insertion failed: " . $errorCode);
+
+    respond("error", "Unable to create your RentX account");
+}
+
+$userId = mysqli_insert_id($conn);
+
+mysqli_stmt_close($stmt);
+
+/*
+|--------------------------------------------------------------------------
+| RETURN CREATED ACCOUNT
+|--------------------------------------------------------------------------
+*/
+
+respond("success", "Google registration successful", [
+    "id" => $userId,
+    "name" => $name,
+    "email" => $email,
+    "phone" => $phone,
+    "role" => $requestedRole
+]);
+
 ?>
-```
